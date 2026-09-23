@@ -30,7 +30,7 @@ BTN_PLAY_STOP_PIN = board.GP10  # global play/pause (short), clear active mode (
 BTN_TEMPO_UP_PIN  = board.GP11
 BTN_TEMPO_DN_PIN  = board.GP12
 BTN_MUTE_PIN      = board.GP13  # mute/unmute active layer (short), clear active layer (0.6 s long)
-BTN_SYNTH_EDIT_PIN = board.GP14  # toggle SYNTH EDIT overlay (short press; SEQ mode, or LOOP mode on a melodic layer)
+BTN_MENU_PIN      = board.GP14  # open the MENU overlay; "select" while it's open
 
 # ── Button identifiers (payload in BTN_DOWN / BTN_UP events) ─────────────────
 BTN_MODE        = "mode"
@@ -39,7 +39,7 @@ BTN_PLAY_STOP   = "play"
 BTN_TEMPO_UP    = "t+"
 BTN_TEMPO_DN    = "t-"
 BTN_MUTE        = "mute"
-BTN_SYNTH_EDIT  = "synth"
+BTN_MENU        = "menu"
 
 # ── Audio ─────────────────────────────────────────────────────────────────────
 SAMPLE_RATE = 22050
@@ -53,10 +53,8 @@ NUM_TRACKS    = 8
 # ── Looper ────────────────────────────────────────────────────────────────────
 NUM_LOOP_LAYERS = 8
 MAX_LOOP_EVENTS = 256   # per layer
-
-# Layers 0..NUM_KIT_LAYERS-1  : drum kit  (8 pads = 8 fixed percussion sounds)
-# Layers NUM_KIT_LAYERS..7    : melodic   (8 pads = one octave of a scale, one lead voice)
-NUM_KIT_LAYERS = 1
+# Each layer's instrument is assigned from the menu (default: layer 0 = drum
+# kit, layers 1-7 = melodic voices) -- see sound_presets.INSTRUMENT_NAMES.
 
 # ── Modes ─────────────────────────────────────────────────────────────────────
 MODE_LOOPER    = 0

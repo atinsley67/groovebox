@@ -1,12 +1,14 @@
 """
 LooperMode — 8-layer event-based live looper using synthio.
 
-Layers 0..NUM_KIT_LAYERS-1 are drum-kit layers: each pad triggers a fixed,
-different instrument (same sounds as the sequencer). Layers NUM_KIT_LAYERS..7
-are melodic: each pad plays a scale degree on that layer's own dedicated
-voice (see synth_engine.trigger_layer_pad / sound_presets.build_melodic_voices).
+Each layer plays its own instance of whatever instrument it's assigned (see
+synth_engine.assign_channel; by default layer 0 = the drum kit, layers 1-7 =
+the melodic voices). On a kit layer each pad triggers a different drum
+sound; on a melodic layer each pad plays a scale degree on that layer's own
+voice (see synth_engine.trigger_layer_pad).
 A recorded note-on is (loop_pos_seconds, pad); how `pad` is interpreted
-depends only on which layer it was recorded into. Pads whose sound needs an
+depends only on which instrument the layer currently has -- reassigning a
+layer re-instruments its recorded content live. Pads whose sound needs an
 explicit release (a melodic voice, or a sustained kit pad) also get a
 matching note-off recorded, so playback reproduces the actual hold length
 instead of the sound's fixed default. A pad without a recorded release
@@ -63,9 +65,15 @@ Note-start quantization (synced sessions only):
   (_QUANT_BIAS). Only the
   recorded position moves: the pad's sound still fires the instant it's
   pressed, so this is only ever audible on loop playback, never as added
-  input latency. Note-offs are never quantized, so hold length/feel is
-  preserved. A freeform (unsynced) loop is unaffected -- there's no tempo
+  input latency. A note-off moves with its own note-on, so the played
+  length is preserved (and a recorded note-off is never before its
+  note-on). A freeform (unsynced) loop is unaffected -- there's no tempo
   grid to snap to.
+
+Loop-length edits (the menu's EXTEND / MIRROR, only while nothing is being
+captured -- see can_modify_length):
+  EXTEND doubles every layer's length; the new second half is silent.
+  MIRROR replaces the active layer's second half with a copy of its first.
 
 Snap-to-bar sync:
   A synced first layer's recording (after its countdown lands on the 1)
@@ -107,6 +115,22 @@ _QUANT_SUBDIV = 1
 # note where it was actually played unless it's clearly reaching ahead.
 _QUANT_BIAS = 0.65
 
+# How far before the loop end a release is placed when it has to be pulled
+# back inside the loop (see _fit_to_duration, mirror_active_layer). update()
+# flushes any release a pass didn't reach at the wrap, so it always fires.
+_SEAM_EPS = 0.001
+
+
+def _count_through(entries, pos):
+    """Number of leading (pos, pad) entries at or before `pos` -- the index
+    update() should carry on from. `entries` must be sorted by position."""
+    n = 0
+    for entry_pos, _ in entries:
+        if entry_pos > pos:
+            break
+        n += 1
+    return n
+
 
 class LoopLayer:
     def __init__(self):
@@ -118,10 +142,15 @@ class LoopLayer:
         self.next_evt_idx  = 0
         self.next_rel_idx  = 0
         self.state         = _IDLE
-        # pad_index -> loop_pos_seconds of its still-open note-on, while
-        # recording/overdubbing. Used to pair a PAD_UP with its onset so we
-        # know how long the note was actually held.
+        # pad_index -> (real_pos, recorded_pos) of its still-open note-on,
+        # while recording/overdubbing. Used to pair a PAD_UP with its onset:
+        # the real position measures how long the note was actually held,
+        # the recorded (possibly quantized) one is where its release is
+        # anchored.
         self.open_onsets   = {}
+        # Most recently pressed pad on this layer -- which kit sound the
+        # menu's SOUND editor starts on for a kit layer.
+        self.last_pad      = 0
 
 
 class LooperMode:
@@ -215,6 +244,10 @@ class LooperMode:
         return self._active_idx
 
     @property
+    def active_layer_last_pad(self):
+        return self._layers[self._active_idx].last_pad
+
+    @property
     def snap_active(self):
         return self._snap_active
 
@@ -280,6 +313,7 @@ class LooperMode:
             pad = data
             self._synth.trigger_layer_pad(self._active_idx, pad)
             self._held_mask |= (1 << pad)
+            layer.last_pad = pad
 
             needs_release = self._needs_release(self._active_idx, pad)
 
@@ -288,7 +322,7 @@ class LooperMode:
                 self._rec_state     = _RECORDING
                 layer.events        = [(0.0, pad)]
                 layer.releases      = []
-                layer.open_onsets   = {pad: 0.0} if needs_release else {}
+                layer.open_onsets   = {pad: (0.0, 0.0)} if needs_release else {}
                 if self._synced:
                     self._snap_active    = True
                     self._snap_bar_count = 0
@@ -310,10 +344,11 @@ class LooperMode:
                     evt_pos = self._quantize_pos(pos) if self._synced else pos
                     layer.events.append((evt_pos, pad))
                     if needs_release:
-                        # Ambiguity check on release uses the real onset
-                        # time, not the (possibly snapped-forward) recorded
-                        # one -- see PAD_UP handling below.
-                        layer.open_onsets[pad] = pos
+                        # Keep both: the real onset measures the held
+                        # length, the recorded (possibly snapped) one
+                        # anchors where the release goes -- see PAD_UP
+                        # handling below.
+                        layer.open_onsets[pad] = (pos, evt_pos)
 
             elif layer.state == _OVERDUB:
                 elapsed  = now - layer.play_start
@@ -323,7 +358,7 @@ class LooperMode:
                                if self._synced else loop_pos)
                     layer.events.append((evt_pos, pad))
                     if needs_release:
-                        layer.open_onsets[pad] = loop_pos
+                        layer.open_onsets[pad] = (loop_pos, evt_pos)
 
         elif etype == PAD_UP:
             self._release_pad(self._active_idx, data)
@@ -334,15 +369,26 @@ class LooperMode:
 
             recording = self._rec_state == _RECORDING
             if recording or layer.state == _OVERDUB:
-                onset_pos = layer.open_onsets.pop(data, None)
-                if onset_pos is not None:
+                onset = layer.open_onsets.pop(data, None)
+                if onset is not None:
+                    real_onset, recorded_onset = onset
                     rel_pos = (max(0.0, now - self._loop_start) if recording else
                                (now - layer.play_start) % layer.loop_duration)
                     # A release position before its onset means the hold
                     # crossed the loop seam (only possible in OVERDUB) --
                     # too ambiguous to place on the grid, so skip it and
                     # let the voice's hold_ms fallback release it instead.
-                    if rel_pos >= onset_pos and len(layer.releases) < MAX_LOOP_EVENTS:
+                    if rel_pos >= real_onset and len(layer.releases) < MAX_LOOP_EVENTS:
+                        # Preserve the played length: the release moves
+                        # with its (possibly quantized) onset -- which also
+                        # covers an OVERDUB onset that snapped past the end
+                        # and wrapped to 0. Anything that lands past the
+                        # loop end is pulled back inside it: here for
+                        # OVERDUB, at commit time (_fit_to_duration) for a
+                        # recording, whose final length isn't known yet.
+                        rel_pos = recorded_onset + (rel_pos - real_onset)
+                        if not recording:
+                            rel_pos = min(rel_pos, layer.loop_duration - _SEAM_EPS)
                         layer.releases.append((rel_pos, data))
 
         elif etype == TICK:
@@ -414,6 +460,7 @@ class LooperMode:
 
         triggered = []
         released  = []
+        flushed   = []
         wrapped   = False
 
         for idx, layer in enumerate(self._layers):
@@ -427,6 +474,13 @@ class LooperMode:
             loop_pos   = elapsed - loop_count * layer.loop_duration
 
             if loop_count != layer.last_loop_cnt:
+                if layer.last_loop_cnt != -1:
+                    # Releases the previous pass never reached (no frame
+                    # landed between them and the loop end -- e.g. one
+                    # pulled back to just before the seam) still fire,
+                    # instead of being skipped when the indices reset.
+                    for _, pad in layer.releases[layer.next_rel_idx:]:
+                        flushed.append((idx, pad))
                 layer.last_loop_cnt = loop_count
                 layer.next_evt_idx  = 0
                 layer.next_rel_idx  = 0
@@ -451,9 +505,13 @@ class LooperMode:
         if wrapped:
             self._bar_count += 1
 
-        # Fire note-ons before note-offs so a note recorded with a very
-        # short hold (onset and release landing in the same frame) still
-        # audibly re-triggers rather than being immediately silenced.
+        # Previous-pass releases go first, so they can't cut off a note this
+        # pass just started. Then note-ons before note-offs so a note
+        # recorded with a very short hold (onset and release landing in the
+        # same frame) still audibly re-triggers rather than being
+        # immediately silenced.
+        for idx, pad in flushed:
+            self._release_pad(idx, pad)
         for idx, pad in triggered:
             self._synth.trigger_layer_pad(idx, pad)
         for idx, pad in released:
@@ -594,7 +652,7 @@ class LooperMode:
                 break
             layer.events.append((0.0, pad))
             if pad in self._countdown_down_pads and self._needs_release(self._active_idx, pad):
-                layer.open_onsets[pad] = 0.0
+                layer.open_onsets[pad] = (0.0, 0.0)
         self._countdown_snap_pads = set()
         self._countdown_down_pads = set()
         if self._countdown_kind == "beat":
@@ -615,8 +673,7 @@ class LooperMode:
 
     def _commit_recording(self, duration):
         layer = self._layers[self._active_idx]
-        layer.events.sort(key=lambda e: e[0])
-        layer.releases.sort(key=lambda e: e[0])
+        self._fit_to_duration(layer, duration)
         layer.open_onsets = {}
         layer.loop_duration = duration
         if self._master_dur == 0.0:
@@ -629,6 +686,36 @@ class LooperMode:
             self._transport_playing = True
         self._rec_state = _IDLE
         self._start_layer_playback(layer)
+
+    def _fit_to_duration(self, layer, duration):
+        """Fold anything recorded at or past the loop end back inside it,
+        then sort both lists. Only reachable with quantization on: a note
+        played in the last fraction of a step can snap to exactly
+        `duration` (which would never fire -- playback positions are always
+        < loop_duration), and a length-preserving release can land past
+        the end. An onset past the end wraps to the loop top, and so does
+        its own release, keeping the pair together; any other release past
+        the end is pulled back to just before the seam (update()'s wrap
+        flush guarantees it still fires)."""
+        merged = sorted([(p, 0, pad) for p, pad in layer.events] +
+                        [(p, 1, pad) for p, pad in layer.releases])
+        events, releases = [], []
+        onset_wrapped = {}   # pad -> whether that pad's latest onset wrapped
+        for pos, kind, pad in merged:
+            if kind == 0:
+                wrapped = pos >= duration
+                onset_wrapped[pad] = wrapped
+                events.append((max(0.0, pos - duration) if wrapped else pos, pad))
+            else:
+                if pos >= duration:
+                    if onset_wrapped.get(pad):
+                        pos = min(pos - duration, duration - _SEAM_EPS)
+                    else:
+                        pos = duration - _SEAM_EPS
+                releases.append((pos, pad))
+        events.sort(key=lambda e: e[0])
+        releases.sort(key=lambda e: e[0])
+        layer.events, layer.releases = events, releases
 
     def _commit_snap_recording(self, now):
         # Duration is derived from the exact tempo grid (bar_count whole
@@ -743,6 +830,109 @@ class LooperMode:
             self._paused_at = now
         self._refresh_display()
 
+    # ── Loop-length edits (called by the menu's EXTEND / MIRROR) ──────────────
+
+    def can_modify_length(self):
+        """True when a loop exists and nothing is being captured: no
+        recording/countdown, and no layer mid-overdub (overdub toggling
+        happens entirely within _rec_state == _IDLE, so it needs its own
+        check)."""
+        return (self._rec_state == _IDLE and self._master_dur > 0 and
+                all(l.state != _OVERDUB for l in self._layers))
+
+    def extend_loop(self, now):
+        """Double the loop length for every layer (they all share one
+        master_duration); content is untouched, so the new second half is
+        silent everywhere. Each layer is re-anchored so its current pass
+        plays out before the silent half starts -- just doubling
+        loop_duration would remap the position to elapsed % 2L, dropping
+        into silence mid-pass on every odd pass. The re-anchor moves
+        play_start by a whole number of old loop lengths, so layers stay
+        phase-aligned and a synced loop stays bar-aligned. Returns False
+        (no-op) unless can_modify_length()."""
+        if not self.can_modify_length():
+            return False
+        for layer in self._layers:
+            if layer.state == _IDLE or layer.loop_duration <= 0:
+                continue
+            old_pos = (now - layer.play_start) % layer.loop_duration
+            layer.play_start     = now - old_pos
+            layer.loop_duration *= 2
+            self._resync_layer(layer, now)
+        self._master_dur *= 2
+        return True
+
+    def mirror_active_layer(self, now):
+        """Replace the active layer's second half with a copy of its first
+        half (anything already in the second half is dropped). Every copied
+        note that needs a release gets one: its original's release shifted
+        by half the loop, pulled back to just before the seam if that would
+        land past the end (not wrapped into the next pass, where on a
+        melodic layer it would cut off the first half's notes), or at the
+        seam if the original had none. Returns False with nothing changed if
+        the layer is idle, can_modify_length() fails, or the result would
+        exceed MAX_LOOP_EVENTS."""
+        if not self.can_modify_length():
+            return False
+        idx   = self._active_idx
+        layer = self._layers[idx]
+        if layer.state == _IDLE or layer.loop_duration <= 0:
+            return False
+        dur  = layer.loop_duration
+        half = dur / 2
+        seam = dur - _SEAM_EPS
+
+        # Pair every onset with its release: a release belongs to the latest
+        # still-unpaired onset of the same pad at or before it (onsets sort
+        # ahead of releases at equal positions). Exact, given the recording
+        # invariant that a release is never before its own onset.
+        merged = sorted([(p, 0, pad, i) for i, (p, pad) in enumerate(layer.events)] +
+                        [(p, 1, pad, 0) for p, pad in layer.releases])
+        open_by_pad = {}
+        release_of  = {}   # onset index -> its release position
+        for pos, kind, pad, i in merged:
+            if kind == 0:
+                open_by_pad.setdefault(pad, []).append(i)
+            else:
+                stack = open_by_pad.get(pad)
+                if stack:
+                    release_of[stack.pop()] = pos
+
+        events, releases = [], []
+        for i, (pos, pad) in enumerate(layer.events):
+            if pos >= half:
+                continue
+            events.append((pos, pad))
+            events.append((pos + half, pad))
+            rel = release_of.get(i)
+            if rel is not None:
+                releases.append((rel, pad))
+                releases.append((min(rel + half, seam), pad))
+            elif self._needs_release(idx, pad):
+                releases.append((seam, pad))
+
+        if len(events) > MAX_LOOP_EVENTS or len(releases) > MAX_LOOP_EVENTS:
+            return False
+        events.sort(key=lambda e: e[0])
+        releases.sort(key=lambda e: e[0])
+        layer.events, layer.releases = events, releases
+        layer.open_onsets = {}
+        self._resync_layer(layer, now)
+        return True
+
+    def _resync_layer(self, layer, now):
+        """Re-derive a layer's pass/position bookkeeping after its timing or
+        content changed mid-playback, so update() carries on from the
+        current position. (Not last_loop_cnt = -1 / indices = 0: that would
+        replay every event before the current position in one burst and
+        count a spurious wrap.)"""
+        elapsed    = now - layer.play_start
+        loop_count = int(elapsed / layer.loop_duration)
+        loop_pos   = elapsed - loop_count * layer.loop_duration
+        layer.last_loop_cnt = loop_count
+        layer.next_evt_idx  = _count_through(layer.events, loop_pos)
+        layer.next_rel_idx  = _count_through(layer.releases, loop_pos)
+
     def _quantize_pos(self, pos, loop_duration=None):
         """Snap a just-recorded note-on position to a grid line (see
         _QUANT_SUBDIV, _QUANT_BIAS). Audio has already fired by the time
@@ -757,15 +947,11 @@ class LooperMode:
     def _needs_release(self, layer_idx, pad):
         """True if this pad's note doesn't self-release and needs an
         explicit release -- a melodic layer's voice, or a sustained
-        (hold_ms > 0) kit pad."""
-        return (self._synth.layer_is_melodic(layer_idx) or
-                self._synth.is_melodic(pad))
+        (hold_ms > 0) kit pad on that layer's own kit."""
+        return self._synth.layer_pad_needs_release(layer_idx, pad)
 
     def _release_pad(self, layer_idx, pad):
-        if self._synth.layer_is_melodic(layer_idx):
-            self._synth.release_layer_pad(layer_idx)
-        elif self._synth.is_melodic(pad):
-            self._synth.note_off(pad)
+        self._synth.release_layer_pad(layer_idx, pad)
 
     def _refresh_display(self):
         if not self._is_display_owner:

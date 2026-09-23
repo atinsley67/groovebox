@@ -3,7 +3,8 @@ import synthio
 import time
 
 import config
-from sound_presets import build_sounds, build_melodic_voices, WAVEFORM_TABLES
+from sound_presets import (build_kit_instance, instantiate_instrument,
+                           INSTRUMENT_NAMES, WAVEFORM_TABLES)
 
 _VIBRATO_MAX_BEND = 1.0 / 12  # bend depth (1 semitone) at full LFO depth
 
@@ -18,53 +19,67 @@ class SynthEngine:
         self._synth = synthio.Synthesizer(sample_rate=config.SAMPLE_RATE)
         self._audio.play(self._synth) # type: ignore # The local stub doesn't like this, but it's correct.
 
-        self._sounds = build_sounds()
-
-        # One dedicated voice per melodic loop layer; index i == loop layer
-        # (config.NUM_KIT_LAYERS + i).
-        self._melodic_voices = build_melodic_voices()
-        # Most voices' construction args already match their params 1:1, but
-        # a voice can ship with e.g. LFO routing already engaged (params
-        # differing from a freshly-constructed Note's defaults) -- apply
-        # once up front so that's live immediately, not just after first edit.
-        for voice in self._melodic_voices:
-            self._apply_voice_params(voice)
-
-        # Track scheduled auto-releases: list of (release_at, note)
+        # Track scheduled auto-releases: list of (release_at, key_note, notes)
         self._pending_releases = []
 
-    # ── Public API ────────────────────────────────────────────────────────────
+        # The sequencer's own kit (track n = sound n), independent of any
+        # loop layer's kit copy.
+        self._sequencer_kit = build_kit_instance()
+
+        # One independent instrument instance per loop layer (see
+        # sound_presets.instantiate_instrument). Default mapping is layer i
+        # = instrument id i: layer 0 = KIT, layers 1-7 = BASS..PAD.
+        self._channels = [self._new_channel(i) for i in range(config.NUM_LOOP_LAYERS)]
+
+    # ── Sequencer API (sequencer's own kit) ───────────────────────────────────
 
     def trigger(self, pad_index):
         """Press a pad. Schedules auto-release based on the sound's hold_ms."""
-        if pad_index < 0 or pad_index >= len(self._sounds):
+        if pad_index < 0 or pad_index >= len(self._sequencer_kit):
             return
-        sound = self._sounds[pad_index]
-        bend_lfo = sound.get("bend_lfo")
-        if bend_lfo is not None:
-            bend_lfo.retrigger()
-        self._press_with_hold([sound["note"]], sound["hold_ms"])
+        self._trigger_drum(self._sequencer_kit[pad_index])
 
     def note_off(self, pad_index):
         """Manually release a held note (called on PAD_UP for melodic pads)."""
-        if pad_index < 0 or pad_index >= len(self._sounds):
+        if pad_index < 0 or pad_index >= len(self._sequencer_kit):
             return
-        self._release([self._sounds[pad_index]["note"]])
+        self._release([self._sequencer_kit[pad_index]["note"]])
+
+    def sound_name(self, pad_index):
+        return self._sequencer_kit[pad_index]["name"]
+
+    def is_melodic(self, pad_index):
+        """Melodic pads need explicit note_off on PAD_UP."""
+        return self._sequencer_kit[pad_index]["hold_ms"] > 0
+
+    # ── Loop-layer API (per-channel instances) ────────────────────────────────
 
     def layer_is_melodic(self, layer_idx):
-        return layer_idx >= config.NUM_KIT_LAYERS
+        return self._channels[layer_idx]["type"] == "melodic"
+
+    def layer_pad_needs_release(self, layer_idx, pad_index):
+        """True if a note played on this layer/pad doesn't self-release and
+        needs an explicit release -- any melodic voice, or a sustained
+        (hold_ms > 0) kit sound."""
+        channel = self._channels[layer_idx]
+        if channel["type"] == "melodic":
+            return True
+        return channel["data"][pad_index]["hold_ms"] > 0
 
     def trigger_layer_pad(self, layer_idx, pad_index):
-        """Press a pad in the context of a loop layer: kit layers play one of
-        the 8 fixed sounds (like trigger()); melodic layers play a scale
-        degree on that layer's own dedicated voice (plus a detuned unison
-        voice, if that voice's 'detune' param is nonzero)."""
-        if not self.layer_is_melodic(layer_idx):
-            self.trigger(pad_index)
+        """Press a pad in the context of a loop layer: kit channels play one
+        of their 8 sounds; melodic channels play a scale degree on the
+        channel's own voice (plus a detuned unison voice, if that voice's
+        'detune' param is nonzero)."""
+        channel = self._channels[layer_idx]
+        if channel["type"] == "kit":
+            if 0 <= pad_index < len(channel["data"]):
+                self._trigger_drum(channel["data"][pad_index])
             return
-        voice = self._melodic_voices[layer_idx - config.NUM_KIT_LAYERS]
+        voice = channel["data"]
         freq  = voice["scale"][pad_index]
         voice["note"].frequency = freq
+        voice["sounding_pad"]   = pad_index
 
         notes = [voice["note"]]
         detune_cents = voice["params"]["detune"]
@@ -73,44 +88,97 @@ class SynthEngine:
             notes.append(voice["detune_note"])
         self._press_with_hold(notes, voice["hold_ms"])
 
-    def release_layer_pad(self, layer_idx):
-        """Manually release a melodic layer's voice (PAD_UP while recording/overdubbing)."""
-        if not self.layer_is_melodic(layer_idx):
+    def release_layer_pad(self, layer_idx, pad_index):
+        """Release a loop layer's note for this pad (PAD_UP, or a recorded
+        note-off during playback).
+
+        Mono-voice guard: a melodic channel is one voice shared by all 8
+        pads, so a release that belongs to an earlier pad (e.g. legato
+        playing, or independently-quantized starts on playback) must not
+        cut off a newer note on a different pad -- it's ignored unless
+        `pad_index` is the pad the voice is currently sounding."""
+        channel = self._channels[layer_idx]
+        if channel["type"] == "kit":
+            sound = channel["data"][pad_index]
+            if sound["hold_ms"] > 0:
+                self._release([sound["note"]])
             return
-        voice = self._melodic_voices[layer_idx - config.NUM_KIT_LAYERS]
+        voice = channel["data"]
+        if voice["sounding_pad"] != pad_index:
+            return
+        voice["sounding_pad"] = None
         # Releasing a note that isn't pressed is a no-op, so it's safe to
         # always release both regardless of the current detune setting.
         self._release([voice["note"], voice["detune_note"]])
 
-    # ── SYNTH EDIT parameter access ─────────────────────────────────────────────
+    def channel_instrument_id(self, layer_idx):
+        return self._channels[layer_idx]["id"]
 
-    def get_voice_param(self, voice_idx, key):
-        return self._melodic_voices[voice_idx]["params"][key]
+    def channel_sound_name(self, layer_idx, pad_index=None):
+        """The layer's instrument name, or for a kit channel with a pad
+        given, that pad's sound name."""
+        channel = self._channels[layer_idx]
+        if channel["type"] == "kit" and pad_index is not None:
+            return channel["data"][pad_index]["name"]
+        return channel["name"]
 
-    def set_voice_param(self, voice_idx, key, value):
-        voice = self._melodic_voices[voice_idx]
-        voice["params"][key] = value
-        self._apply_voice_params(voice)
+    def list_instrument_names(self):
+        return INSTRUMENT_NAMES
 
-    def reset_voice(self, voice_idx):
-        """Restore a melodic voice to the sound it was built with."""
-        voice = self._melodic_voices[voice_idx]
-        voice["params"] = dict(voice["defaults"])
-        self._apply_voice_params(voice)
+    def assign_channel(self, layer_idx, instrument_id):
+        """Give a loop layer a brand-new instance of `instrument_id`. The
+        old instance is silenced (held notes released, pending auto-releases
+        purged) and returned, so a caller can put it back later via
+        restore_channel() with its edits intact."""
+        old = self._channels[layer_idx]
+        self._silence_channel(old)
+        self._channels[layer_idx] = self._new_channel(instrument_id)
+        return old
+
+    def restore_channel(self, layer_idx, channel):
+        """Put a channel previously returned by assign_channel() back as-is."""
+        self._silence_channel(self._channels[layer_idx])
+        self._channels[layer_idx] = channel
+
+    # ── Sound-editor parameter access ─────────────────────────────────────────
+
+    def get_channel_param(self, layer_idx, pad_or_none, key):
+        target, _ = self._channel_target(layer_idx, pad_or_none)
+        return target["params"][key]
+
+    def set_channel_param(self, layer_idx, pad_or_none, key, value):
+        target, apply = self._channel_target(layer_idx, pad_or_none)
+        target["params"][key] = value
+        apply(target)
+
+    def reset_channel(self, layer_idx, pad_or_none):
+        """Restore a channel's voice (or one of its kit sounds) to the sound
+        it was built with."""
+        target, apply = self._channel_target(layer_idx, pad_or_none)
+        target["params"] = dict(target["defaults"])
+        apply(target)
 
     def get_drum_param(self, pad_idx, key):
-        return self._sounds[pad_idx]["params"][key]
+        return self._sequencer_kit[pad_idx]["params"][key]
 
     def set_drum_param(self, pad_idx, key, value):
-        sound = self._sounds[pad_idx]
+        sound = self._sequencer_kit[pad_idx]
         sound["params"][key] = value
         self._apply_drum_params(sound)
 
     def reset_drum(self, pad_idx):
-        """Restore a drum/kit sound to the sound it was built with."""
-        sound = self._sounds[pad_idx]
+        """Restore a sequencer kit sound to the sound it was built with."""
+        sound = self._sequencer_kit[pad_idx]
         sound["params"] = dict(sound["defaults"])
         self._apply_drum_params(sound)
+
+    def _channel_target(self, layer_idx, pad_or_none):
+        """(params-owning dict, apply fn) for a channel: melodic channels
+        have one voice (pad ignored); kit channels pick a sound by pad."""
+        channel = self._channels[layer_idx]
+        if channel["type"] == "melodic":
+            return channel["data"], self._apply_voice_params
+        return channel["data"][pad_or_none or 0], self._apply_drum_params
 
     def _apply_voice_params(self, voice):
         params   = voice["params"]
@@ -192,6 +260,38 @@ class SynthEngine:
 
     # ── Private ───────────────────────────────────────────────────────────────
 
+    def _new_channel(self, instrument_id):
+        channel = instantiate_instrument(instrument_id)
+        if channel["type"] == "melodic":
+            # Most voices' construction args already match their params 1:1,
+            # but a voice can ship with e.g. LFO routing already engaged --
+            # apply once up front so that's live immediately, not just
+            # after the first edit.
+            self._apply_voice_params(channel["data"])
+        return channel
+
+    def _silence_channel(self, channel):
+        """Release everything a channel might be sounding and drop its
+        scheduled auto-releases, so nothing is left pointing at (or still
+        playing from) an instance that's about to leave its slot."""
+        if channel["type"] == "melodic":
+            voice = channel["data"]
+            voice["sounding_pad"] = None
+            notes = [voice["note"], voice["detune_note"]]
+        else:
+            notes = [sound["note"] for sound in channel["data"]]
+        self._synth.release(notes)
+        self._pending_releases = [
+            r for r in self._pending_releases
+            if not any(r[1] is n for n in notes)
+        ]
+
+    def _trigger_drum(self, sound):
+        bend_lfo = sound.get("bend_lfo")
+        if bend_lfo is not None:
+            bend_lfo.retrigger()
+        self._press_with_hold([sound["note"]], sound["hold_ms"])
+
     def _press_with_hold(self, notes, hold_ms):
         # Release any previous press of these notes before re-triggering,
         # otherwise synthio stacks voices.
@@ -225,13 +325,6 @@ class SynthEngine:
             else:
                 still_pending.append((release_at, key, notes))
         self._pending_releases = still_pending
-
-    def sound_name(self, pad_index):
-        return self._sounds[pad_index]["name"]
-
-    def is_melodic(self, pad_index):
-        """Melodic pads need explicit note_off on PAD_UP."""
-        return self._sounds[pad_index]["hold_ms"] > 0
 
     def deinit(self):
         self._synth.deinit()

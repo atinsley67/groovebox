@@ -16,7 +16,7 @@ _FUNC_BUTTONS = [
     (config.BTN_TEMPO_UP_PIN,  config.BTN_TEMPO_UP),
     (config.BTN_TEMPO_DN_PIN,  config.BTN_TEMPO_DN),
     (config.BTN_MUTE_PIN,      config.BTN_MUTE),
-    (config.BTN_SYNTH_EDIT_PIN, config.BTN_SYNTH_EDIT),
+    (config.BTN_MENU_PIN,      config.BTN_MENU),
 ]
 
 
