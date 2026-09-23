@@ -1,0 +1,18 @@
+# Python / editor tooling
+.venv/
+__pycache__/
+*.pyc
+
+# Personal Claude Code permissions
+.claude/settings.local.json
+
+# CircuitPython secrets (WiFi, API keys) -- see settings.toml.example
+settings.toml
+
+# CircuitPython drive artefacts, in case the whole drive gets copied
+boot_out.txt
+.Trashes
+.Trash-*
+.fseventsd/
+.metadata_never_index
+System Volume Information/

@@ -1,0 +1,5 @@
+# Copy to settings.toml (git-ignored) and fill in. CircuitPython reads these
+# at boot; access them in code with os.getenv("NAME").
+#
+# CIRCUITPY_WIFI_SSID = "your-network"
+# CIRCUITPY_WIFI_PASSWORD = "your-password"

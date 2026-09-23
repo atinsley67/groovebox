@@ -1,0 +1,11 @@
+# Desktop-side tooling only (editor type-checking / IntelliSense).
+# Not deployed to the Pico. The device's own lib/ (adafruit_aw9523,
+# adafruit_ht16k33, adafruit_bus_device, adafruit_register) is managed
+# by hand on the CIRCUITPY drive and isn't tracked in this repo.
+circuitpython-stubs==10.3.0
+adafruit-circuitpython-aw9523==1.1.16
+adafruit-circuitpython-ht16k33==4.6.17
+adafruit-circuitpython-busdevice==5.2.17
+adafruit-circuitpython-register==1.13.0
+adafruit-circuitpython-typing==1.12.3
+Adafruit-Blinka==9.2.0
