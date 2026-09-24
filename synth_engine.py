@@ -9,6 +9,17 @@ from sound_presets import (build_kit_instance, instantiate_instrument,
 _VIBRATO_MAX_BEND = 1.0 / 12  # bend depth (1 semitone) at full LFO depth
 
 
+def _merged_params(target, saved):
+    """A sound's built-in defaults with any saved values on top. Only keys
+    the sound actually has are taken, so a groove saved before (or after)
+    a param was added/removed still loads."""
+    params = dict(target["defaults"])
+    for key in params:
+        if key in saved:
+            params[key] = saved[key]
+    return params
+
+
 class SynthEngine:
     def __init__(self):
         self._audio = audiobusio.I2SOut(
@@ -171,6 +182,50 @@ class SynthEngine:
         sound = self._sequencer_kit[pad_idx]
         sound["params"] = dict(sound["defaults"])
         self._apply_drum_params(sound)
+
+    # ── Grooves (called by code.py for the menu's SAVE / LOAD) ────────────────
+
+    def snapshot_sounds(self):
+        """Every sound edit as plain data: the sequencer kit's 8 sounds, and
+        each loop layer's instrument id plus its params (one dict for a
+        melodic voice, one per pad for a kit)."""
+        layers = []
+        for channel in self._channels:
+            if channel["type"] == "melodic":
+                params = dict(channel["data"]["params"])
+            else:
+                params = [dict(sound["params"]) for sound in channel["data"]]
+            layers.append({"id": channel["id"], "params": params})
+        return {"kit": [dict(sound["params"]) for sound in self._sequencer_kit],
+                "layers": layers}
+
+    def restore_sounds(self, data):
+        """Put back a snapshot_sounds(). Every layer gets a fresh instance of
+        its saved instrument (silencing whatever it had), then the saved
+        params on top -- see _merged_params."""
+        for sound, saved in zip(self._sequencer_kit, data.get("kit", [])):
+            sound["params"] = _merged_params(sound, saved)
+            self._apply_drum_params(sound)
+
+        saved_layers = data.get("layers", [])
+        for idx in range(len(self._channels)):
+            entry = saved_layers[idx] if idx < len(saved_layers) else {}
+            instrument_id = entry.get("id", idx)
+            if not 0 <= instrument_id < len(INSTRUMENT_NAMES):
+                instrument_id = idx
+            self.assign_channel(idx, instrument_id)
+            channel = self._channels[idx]
+            saved   = entry.get("params")
+            if not saved:
+                continue
+            if channel["type"] == "melodic":
+                voice = channel["data"]
+                voice["params"] = _merged_params(voice, saved)
+                self._apply_voice_params(voice)
+            else:
+                for sound, sound_saved in zip(channel["data"], saved):
+                    sound["params"] = _merged_params(sound, sound_saved)
+                    self._apply_drum_params(sound)
 
     def _channel_target(self, layer_idx, pad_or_none):
         """(params-owning dict, apply fn) for a channel: melodic channels

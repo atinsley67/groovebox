@@ -16,11 +16,16 @@ MODE button gesture handling (intercepted here, not passed to modes):
 
 MENU overlay (menu.py): BTN_MENU opens it; while open, MENU is "select"
 and PLAY/STOP is "back" (closing it from root) instead of the transport.
+Its SAVE / LOAD items call back into capture_groove / apply_groove below,
+since BPM and sync mode live here.
 
 Sync modes (sync_mode variable):
   "none"     — no loop recorded yet; modes are fully independent
   "snap"     — sequencer was playing when looper started recording; both play
-               simultaneously; BPM changes blocked to prevent drift
+               simultaneously and PLAY/STOP controls both; BPM changes blocked
+               to prevent drift while any loop content exists. Clearing every
+               layer keeps "snap" if the sequencer is still running (the link
+               stays, BPM unlocks until the next synced take is armed)
   "freeform" — looper recorded without sequencer; sequencer mode entry blocked
 """
 
@@ -64,7 +69,6 @@ def main():
 
     seq        = SequencerMode(synth, disp)
     looper     = LooperMode(synth, disp, seq)
-    menu       = MenuMode(synth, disp, looper, seq, lambda: active)
 
     modes      = [looper, seq]
     mode_index = MODE_LOOPER
@@ -112,6 +116,49 @@ def main():
     # TEMPO hold-to-repeat state
     tempo_held_dir  = 0     # 0 = neither held, +1 = TEMPO_UP held, -1 = TEMPO_DN held
     tempo_repeat_at = 0.0   # next scheduled auto-repeat bump, while tempo_held_dir != 0
+
+    # ── Grooves: the menu's SAVE / LOAD (file I/O lives in groove.py) ─────────
+    def capture_groove():
+        return {
+            "bpm":    bpm,
+            "sync":   sync_mode,
+            "seq":    seq.snapshot(),
+            "loop":   looper.snapshot(),
+            "sounds": synth.snapshot_sounds(),
+        }
+
+    def apply_groove(data, now):
+        """Replace the whole session with a loaded groove. The transport is
+        stopped first, so PLAY afterwards starts everything from the top --
+        a synced groove's loop and sequencer come back lockstepped the same
+        way they do on any resume."""
+        nonlocal bpm, step_dur, sync_mode
+        seq.set_playing(False)
+        looper.set_playing(False, now)
+        synth.restore_sounds(data.get("sounds", {}))
+        seq.restore(data.get("seq", {}))
+        looper.restore(data.get("loop", {}))
+        bpm = max(40, min(300, int(data.get("bpm", DEFAULT_BPM))))
+        step_dur = step_duration(bpm)
+        seq.step_dur = step_dur
+        # A synced loop was recorded against this exact BPM; restoring
+        # "snap" re-locks the tempo buttons so the two can't drift apart.
+        sync_mode = data.get("sync", "none")
+        if looper.is_idle or sync_mode not in ("snap", "freeform"):
+            sync_mode = "none"
+        looper.set_snap_mode(sync_mode == "snap")
+
+    menu = MenuMode(synth, disp, looper, seq, lambda: active,
+                    capture_groove, apply_groove)
+
+    def tempo_locked():
+        """BPM changes are blocked whenever a loop depends on the current
+        tempo: a synced session with loop content (or a take armed/in
+        progress -- is_idle covers both), or a playing freeform loop (BPM
+        only drives the sequencer's clock, which a freeform loop was never
+        anchored to, so a change would do nothing audible)."""
+        return ((sync_mode == "snap" and not looper.is_idle) or
+                (sync_mode == "freeform" and looper.is_playing))
 
     disp.show(MODE_NAMES[mode_index])
 
@@ -249,12 +296,8 @@ def main():
             elif etype == BTN_DOWN and data == BTN_TEMPO_UP:
                 if menu_active:
                     filtered.append(event)
-                elif sync_mode == "snap" or (sync_mode == "freeform" and looper.is_playing):
-                    # Same rule as blocking a switch to SEQ mid-freeform-loop
-                    # (see BTN_MODE above): BPM drives only the sequencer's
-                    # clock, which a playing freeform loop was never anchored
-                    # to, so changing it here would do nothing audible --
-                    # block it and flash LOCK instead of a no-op BPM readout.
+                elif tempo_locked():
+                    # Flash LOCK instead of a BPM readout -- see tempo_locked().
                     active.set_display_owner(False)
                     disp.show("LOCK")
                     bpm_display_until = now + _BPM_DISPLAY_HOLD
@@ -271,7 +314,7 @@ def main():
             elif etype == BTN_DOWN and data == BTN_TEMPO_DN:
                 if menu_active:
                     filtered.append(event)
-                elif sync_mode == "snap" or (sync_mode == "freeform" and looper.is_playing):
+                elif tempo_locked():
                     active.set_display_owner(False)
                     disp.show("LOCK")
                     bpm_display_until = now + _BPM_DISPLAY_HOLD
@@ -348,7 +391,12 @@ def main():
 
         # ── Sync coordinator: frame checks ────────────────────────────────────
         if looper.was_cleared:
-            sync_mode = "none"
+            # Every layer cleared (or a first-layer arm cancelled): with the
+            # sequencer still running, stay linked so PLAY/STOP keeps
+            # controlling it from LOOP focus too, and the next take syncs to
+            # it anyway. Otherwise nothing is left to link.
+            sync_mode = "snap" if seq.playing else "none"
+            looper.set_snap_mode(sync_mode == "snap")
 
         # ── Drive tempo clock ─────────────────────────────────────────────────
         # Gated on the sequencer's own playing state, not the looper's --

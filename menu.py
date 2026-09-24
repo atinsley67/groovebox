@@ -17,7 +17,8 @@ One control scheme everywhere in the menu:
 Pads and TEMPO only ever move a highlight or step a value; MENU is the only
 thing that commits an action, so there are no hold-to-confirm gestures.
 
-Root (always where the menu opens): SOUND, ASSIGN, EXTEND, MIRROR.
+Root (always where the menu opens): SOUND, ASSIGN, EXTEND, MIRROR, SAVE,
+LOAD.
 
 SOUND: edit the target's sound -- SEQ mode: the selected track's drum sound
   (synth_params.DRUM_PARAM_SCHEMA); LOOP mode: the active layer's own
@@ -35,8 +36,18 @@ ASSIGN (LOOP only): pick the active layer's instrument. The name shows
 
 EXTEND / MIRROR (LOOP only): run in place from root -- see
   LooperMode.extend_loop / mirror_active_layer. "N/A " if they can't run.
+
+SAVE / LOAD (either mode): pick one of 8 groove slots (see groove.py) --
+  pads jump, TEMPO+/- steps. The display says whether the slot is in use:
+  SAVE shows "SAV3" (empty) / "OVR3" (will overwrite), LOAD "LOD3" / "EMP3".
+  MENU saves / loads and returns to root, flashing DONE or the failure
+  ("RO  ", "FULL", "ERR "); MENU on an empty LOAD slot just flashes "N/A ".
+  Loading replaces the whole session and stops the transport.
 """
 
+import time
+
+import groove
 import synth_params
 from event_types import PAD_DOWN, BTN_DOWN, BTN_UP
 from config import BTN_RECORD, BTN_TEMPO_UP, BTN_TEMPO_DN, BTN_MENU, NUM_PADS
@@ -50,6 +61,8 @@ _ASSIGN_SETTLE   = 0.2   # seconds the ASSIGN highlight must rest before the sou
 _ROOT   = "root"
 _SOUND  = "sound"
 _ASSIGN = "assign"
+_SAVE   = "save"
+_LOAD   = "load"
 
 # Root items, in pad order: (display label, action)
 _ROOT_ITEMS = [
@@ -57,16 +70,22 @@ _ROOT_ITEMS = [
     ("ASGN", "assign"),
     ("EXT ", "extend"),
     ("MIRR", "mirror"),
+    ("SAVE", "save"),
+    ("LOAD", "load"),
 ]
 
 
 class MenuMode:
-    def __init__(self, synth, display, looper, seq, get_active_mode):
+    def __init__(self, synth, display, looper, seq, get_active_mode,
+                 capture_groove, apply_groove):
         self._synth           = synth
         self._display         = display
         self._looper          = looper
         self._seq             = seq
         self._get_active_mode = get_active_mode
+        # code.py callbacks: capture_groove() -> dict; apply_groove(dict, now)
+        self._capture_groove  = capture_groove
+        self._apply_groove    = apply_groove
 
         self._section  = _ROOT
         self._root_idx = 0
@@ -84,6 +103,10 @@ class MenuMode:
         self._assign_original_id = 0
         self._assign_highlight   = 0
         self._assign_swap_at     = 0.0    # 0 = no swap pending
+
+        # SAVE / LOAD
+        self._slot       = 0   # remembered across visits: re-saving goes to the same slot
+        self._used_slots = 0   # groove.used_slots() bitmask, read on entry
 
         self._held_button    = None   # BTN_TEMPO_UP / BTN_TEMPO_DN / None
         self._next_repeat_at = 0.0
@@ -184,6 +207,9 @@ class MenuMode:
         elif self._section == _ASSIGN:
             if pad < len(self._synth.list_instrument_names()):
                 self._assign_move(pad, now)
+        elif self._section in (_SAVE, _LOAD):
+            if pad < groove.NUM_SLOTS:
+                self._slot = pad
         self._refresh_display()
 
     def _step(self, direction, now):
@@ -194,6 +220,8 @@ class MenuMode:
         elif self._section == _ASSIGN:
             count = len(self._synth.list_instrument_names())
             self._assign_move((self._assign_highlight + direction) % count, now)
+        elif self._section in (_SAVE, _LOAD):
+            self._slot = (self._slot + direction) % groove.NUM_SLOTS
         self._refresh_display()
 
     def _select(self, now):
@@ -201,6 +229,9 @@ class MenuMode:
             action = _ROOT_ITEMS[self._root_idx][1]
             if action == "sound":
                 self._enter_sound(now)
+            elif action in (_SAVE, _LOAD):
+                self._section    = action
+                self._used_slots = groove.used_slots()
             elif not self._loop_active():
                 self._flash("N/A ", now)   # ASSIGN/EXTEND/MIRROR are loop-only
             elif action == "assign":
@@ -221,6 +252,17 @@ class MenuMode:
         elif self._section == _ASSIGN:
             self._assign_commit()
             self._section = _ROOT
+
+        elif self._section == _SAVE:
+            self._flash(self._save(), time.monotonic())
+            self._section = _ROOT
+
+        elif self._section == _LOAD:
+            if not self._used_slots & (1 << self._slot):
+                self._flash("N/A ", now)
+            else:
+                self._flash(self._load(now), time.monotonic())
+                self._section = _ROOT
 
         self._held_button = None
         self._refresh_display()
@@ -347,6 +389,27 @@ class MenuMode:
             self._assign_commit()
             self._enter_assign()
 
+    # ── SAVE / LOAD ───────────────────────────────────────────────────────────
+    # Both return the status to flash. Flashed from time.monotonic() rather
+    # than the press time: a flash write can take long enough to use up the
+    # whole message window before it's ever drawn.
+
+    def _save(self):
+        try:
+            groove.save(self._slot, self._capture_groove())
+        except OSError as e:
+            return groove.error_label(e)
+        return "DONE"
+
+    def _load(self, now):
+        try:
+            data = groove.load(self._slot)
+        except (OSError, ValueError) as e:
+            return groove.error_label(e)
+        self._apply_groove(data, now)
+        self._kit_layer = None   # layers may have new instruments: reseed the kit cursor
+        return "DONE"
+
     # ── Display ───────────────────────────────────────────────────────────────
 
     def _loop_active(self):
@@ -365,6 +428,15 @@ class MenuMode:
         elif self._section == _ASSIGN:
             lower = 1 << self._assign_highlight
             text  = self._synth.list_instrument_names()[self._assign_highlight]
+
+        elif self._section in (_SAVE, _LOAD):
+            lower = 1 << self._slot
+            used  = self._used_slots & (1 << self._slot)
+            if self._section == _SAVE:
+                prefix = "OVR" if used else "SAV"
+            else:
+                prefix = "LOD" if used else "EMP"
+            text = f"{prefix}{self._slot + 1}"
 
         else:
             schema, get, _, _, _ = self._edit_target()

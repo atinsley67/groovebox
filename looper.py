@@ -75,6 +75,9 @@ captured -- see can_modify_length):
   EXTEND doubles every layer's length; the new second half is silent.
   MIRROR replaces the active layer's second half with a copy of its first.
 
+Grooves (the menu's SAVE / LOAD): snapshot() / restore() -- committed
+layers only; see there.
+
 Snap-to-bar sync:
   A synced first layer's recording (after its countdown lands on the 1)
   keeps capturing bar after bar -- get a beat going, however many bars you
@@ -87,7 +90,7 @@ Snap-to-bar sync:
 
 from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, BTN_UP, TICK
 from config import (BTN_RECORD, BTN_MUTE,
-                    MAX_LOOP_EVENTS, NUM_LOOP_LAYERS, STEPS_PER_BAR)
+                    MAX_LOOP_EVENTS, NUM_LOOP_LAYERS, NUM_PADS, STEPS_PER_BAR)
 
 _IDLE      = "IDLE"
 _ARMED     = "ARM "
@@ -130,6 +133,15 @@ def _count_through(entries, pos):
             break
         n += 1
     return n
+
+
+def _restore_entries(saved, duration):
+    """Saved [pos, pad] pairs back to sorted (pos, pad) tuples, dropping
+    anything a playable loop couldn't hold (hand-edited files included)."""
+    entries = [(pos, pad) for pos, pad in saved
+               if 0.0 <= pos < duration and 0 <= pad < NUM_PADS]
+    entries.sort(key=lambda e: e[0])
+    return entries[:MAX_LOOP_EVENTS]
 
 
 class LoopLayer:
@@ -572,7 +584,13 @@ class LooperMode:
             self._countdown_kind      = None
             self._countdown_snap_pads = set()
             self._countdown_down_pads = set()
-            self._was_cleared         = True   # signal coordinator: snap intent cancelled
+            # Only a first layer's arm carries the session's sync intent
+            # (code.py picks snap/freeform when it's armed) -- cancelling
+            # that resets it. Cancelling a later layer's countdown must
+            # leave an existing session's sync alone, or a synced loop
+            # would lose its PLAY/STOP link and BPM lock.
+            if self._master_dur == 0:
+                self._was_cleared = True
 
         elif self._rec_state == _RECORDING:
             if self._snap_active:
@@ -828,6 +846,66 @@ class LooperMode:
                     self._countdown_target += paused_for
         else:
             self._paused_at = now
+        self._refresh_display()
+
+    # ── Grooves (called by code.py for the menu's SAVE / LOAD) ────────────────
+
+    def snapshot(self):
+        """Every committed layer as plain data. A layer mid-overdub is saved
+        as playing (sorted copies -- overdub appends out of order); one
+        still being recorded for the first time is IDLE until it commits,
+        so it's left out along with the rest of the in-progress take."""
+        layers = []
+        for layer in self._layers:
+            if layer.state == _IDLE or layer.loop_duration <= 0:
+                layers.append(None)
+                continue
+            layers.append({
+                "dur":   layer.loop_duration,
+                "muted": layer.state == _MUTED,
+                "on":    sorted(layer.events, key=lambda e: e[0]),
+                "off":   sorted(layer.releases, key=lambda e: e[0]),
+            })
+        return {"master": self._master_dur, "layers": layers}
+
+    def restore(self, data):
+        """Replace everything with a snapshot(). Expects the transport
+        already stopped (code.py does that first), so the next PLAY starts
+        every layer from the top via set_playing(). Unlike clear_all() this
+        never flags was_cleared -- code.py sets the loaded groove's sync
+        mode itself, and that flag would reset it to "none" at frame end."""
+        self._rec_state           = _IDLE
+        self._countdown_kind      = None
+        self._countdown_number    = 0
+        self._countdown_snap_pads = set()
+        self._countdown_down_pads = set()
+        self._snap_active         = False
+        self._snap_bar_count      = 0
+        self._snap_stop_requested = False
+        self._bar_count           = 0
+        self._flash_mask          = 0
+        self._was_cleared         = False
+
+        saved = data.get("layers", [])
+        for idx, layer in enumerate(self._layers):
+            entry = saved[idx] if idx < len(saved) else None
+            dur   = entry.get("dur", 0.0) if entry else 0.0
+            layer.open_onsets   = {}
+            layer.last_loop_cnt = -1
+            layer.next_evt_idx  = 0
+            layer.next_rel_idx  = 0
+            if dur <= 0:
+                layer.events, layer.releases = [], []
+                layer.loop_duration = 0.0
+                layer.state         = _IDLE
+                continue
+            layer.events        = _restore_entries(entry.get("on", []), dur)
+            layer.releases      = _restore_entries(entry.get("off", []), dur)
+            layer.loop_duration = dur
+            layer.state         = _MUTED if entry.get("muted") else _PLAYING
+
+        live = [l for l in self._layers if l.state != _IDLE]
+        self._master_dur = (data.get("master") or live[0].loop_duration) if live else 0.0
         self._refresh_display()
 
     # ── Loop-length edits (called by the menu's EXTEND / MIRROR) ──────────────
