@@ -11,7 +11,7 @@ UI interaction:
                   set_playing(), long press calls clear_all().
   - MUTE short  : mute / unmute selected track
   - MUTE long   : clear all steps on selected track (also unmutes it)
-  - TEMPO+/-    : handled by main loop
+  - UP/DOWN     : selected track's volume -- handled by code.py
 
 Display (4 chars): T<track+1>P<page+1>  e.g. "T1P1"
 LEDs 0-7         : step on/off for selected track on current page;

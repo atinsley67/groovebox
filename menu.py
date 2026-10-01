@@ -1,31 +1,39 @@
 """
-MenuMode — the settings overlay: sound editing, instrument assignment, and
-loop-length edits.
+MenuMode — the settings overlay: sound editing, instrument assignment,
+tempo, loop-length edits, and groove save/load.
 
 Not a top-level mode like LooperMode/SequencerMode; it's a temporary
 overlay opened by BTN_MENU, usable from either mode. It always resolves its
 target live (never a cached copy), so cycling layers/tracks with MODE, or
 switching LOOP<->SEQ, while it's open retargets it on the fly.
 
-One control scheme everywhere in the menu:
-  MENU       : enter / run the highlighted item; confirm inside a section
-  PLAY/STOP  : back to root (cancel in ASSIGN); at root, close the menu --
-               code.py routes it here via back()
-  TEMPO+/-   : move the highlight / step the value (held = auto-repeat)
-  Pads 0-7   : jump the highlight / select a param or instrument
-  MODE       : unchanged (code.py) -- the menu follows the new layer/track
-Pads and TEMPO only ever move a highlight or step a value; MENU is the only
-thing that commits an action, so there are no hold-to-confirm gestures.
+It owns only the 4-char text and these keys:
+  MENU       : select -- enter the highlighted item / edit the value / run
+               the action
+  PLAY/STOP  : back (cancel in ASSIGN); at root, close the menu -- code.py
+               routes it here via back()
+  UP/DOWN    : move the highlight, or step the value while editing (held =
+               auto-repeat)
+Everything else stays with code.py and the active mode: MODE retargets the
+menu as usual, the pads keep playing the active mode (which keeps the
+LEDs), and RECORD / MUTE do nothing while the menu is open.
 
-Root (always where the menu opens): SOUND, ASSIGN, EXTEND, MIRROR, SAVE,
-LOAD.
+Every level is a list: the display shows the highlighted item's label, and
+UP/DOWN wrap around it.
+
+Root (always where the menu opens): SOUND, ASSIGN, BPM, EXTEND, MIRROR,
+SAVE, LOAD.
 
 SOUND: edit the target's sound -- SEQ mode: the selected track's drum sound
   (synth_params.DRUM_PARAM_SCHEMA); LOOP mode: the active layer's own
-  instrument (PARAM_SCHEMA for a melodic voice, DRUM_PARAM_SCHEMA for one of
-  a kit layer's 8 sounds). Pads pick a param, TEMPO+/- steps it, MENU on the
-  RST pad restores the sound's built-in defaults. RECORD toggles the page
-  (melodic), or on a kit loop layer steps which of its 8 sounds is edited.
+  instrument (PARAM_SCHEMA for a melodic voice; DRUM_PARAM_SCHEMA for a kit
+  layer, editing the sound on the last pad played on that layer -- play
+  another pad to switch). The list is the schema's params in order, ending
+  in RST. MENU on a param edits it (UP/DOWN step it, the value shows) until
+  MENU or PLAY/STOP returns to the list. MENU on RST shows SURE, and a
+  second MENU restores the sound's built-in defaults. The highlight is
+  remembered per schema. The target's name flashes on entry and whenever
+  the target changes.
 
 ASSIGN (LOOP only): pick the active layer's instrument. The name shows
   immediately; the sound swaps once the highlight has settled
@@ -34,67 +42,75 @@ ASSIGN (LOOP only): pick the active layer's instrument. The name shows
   layer's original instance, SOUND edits intact. Changing layer keeps the
   pending choice for the old layer.
 
+BPM: MENU edits the tempo, shown as "b120" (code.py's set_bpm, so the clock
+  re-anchors without a jump). While code.py's tempo_locked() holds, it
+  flashes LOCK and the value can't change. MENU or PLAY/STOP returns.
+
 EXTEND / MIRROR (LOOP only): run in place from root -- see
   LooperMode.extend_loop / mirror_active_layer. "N/A " if they can't run.
 
-SAVE / LOAD (either mode): pick one of 8 groove slots (see groove.py) --
-  pads jump, TEMPO+/- steps. The display says whether the slot is in use:
-  SAVE shows "SAV3" (empty) / "OVR3" (will overwrite), LOAD "LOD3" / "EMP3".
-  MENU saves / loads and returns to root, flashing DONE or the failure
-  ("RO  ", "FULL", "ERR "); MENU on an empty LOAD slot just flashes "N/A ".
-  Loading replaces the whole session and stops the transport.
+SAVE / LOAD (either mode): pick one of groove.NUM_SLOTS slots. The label is
+  S or L, the two-digit slot number, and "*" if the slot holds a groove:
+  "S03*" saves over slot 3, "S03 " saves to an empty slot 3, "L03*" loads
+  slot 3. MENU saves / loads and returns to root, flashing DONE or the
+  failure ("RO  ", "FULL", "ERR "); MENU on an empty LOAD slot just flashes
+  "N/A ". Loading replaces the whole session and stops the transport.
 """
 
 import clock
 import groove
 import synth_params
-from event_types import PAD_DOWN, BTN_DOWN, BTN_UP
-from config import BTN_RECORD, BTN_TEMPO_UP, BTN_TEMPO_DN, BTN_MENU, NUM_PADS
+from event_types import BTN_DOWN, BTN_UP
+from config import BTN_INC, BTN_DEC, BTN_MENU
 
-_REPEAT_DELAY    = 0.4   # seconds TEMPO+/- must be held before auto-repeat starts
+_REPEAT_DELAY    = 0.4   # seconds UP/DOWN must be held before auto-repeat starts
 _REPEAT_INTERVAL = 0.12  # seconds between auto-repeat steps
-_FLASH_DURATION  = 0.5   # seconds a SOUND value is shown after a step
 _MSG_DURATION    = 0.6   # seconds a status message ("N/A ", "DONE", a name) is shown
 _ASSIGN_SETTLE   = 0.2   # seconds the ASSIGN highlight must rest before the sound swaps
 
 _ROOT   = "root"
 _SOUND  = "sound"
 _ASSIGN = "assign"
+_BPM    = "bpm"
 _SAVE   = "save"
 _LOAD   = "load"
 
-# Root items, in pad order: (display label, action)
+# Root items, in list order: (display label, action)
 _ROOT_ITEMS = [
-    ("SND ", "sound"),
-    ("ASGN", "assign"),
+    ("SND ", _SOUND),
+    ("ASGN", _ASSIGN),
+    ("BPM ", _BPM),
     ("EXT ", "extend"),
     ("MIRR", "mirror"),
-    ("SAVE", "save"),
-    ("LOAD", "load"),
+    ("SAVE", _SAVE),
+    ("LOAD", _LOAD),
 ]
 
 
 class MenuMode:
     def __init__(self, synth, display, looper, seq, get_active_mode,
-                 capture_groove, apply_groove):
+                 capture_groove, apply_groove, get_bpm, set_bpm, tempo_locked):
         self._synth           = synth
         self._display         = display
         self._looper          = looper
         self._seq             = seq
         self._get_active_mode = get_active_mode
-        # code.py callbacks: capture_groove() -> dict; apply_groove(dict, now)
+        # code.py callbacks: capture_groove() -> dict; apply_groove(dict, now);
+        # get_bpm() -> int; set_bpm(int); tempo_locked() -> bool
         self._capture_groove  = capture_groove
         self._apply_groove    = apply_groove
+        self._get_bpm         = get_bpm
+        self._set_bpm         = set_bpm
+        self._tempo_locked    = tempo_locked
 
         self._section  = _ROOT
         self._root_idx = 0
 
         # SOUND
-        self._page         = 0
-        self._selected_pad = [0, 0]   # remembered cursor, one per page
-        self._kit_pad      = 0        # kit loop layer: which of its sounds is edited
-        self._kit_layer    = None     # layer _kit_pad was seeded for (None = reseed)
-        self._flash_until  = 0.0      # value readout after a step
+        self._sound_idx = {"voice": 0, "drum": 0}   # remembered highlight, per schema
+        self._editing   = False   # MENU pressed on a param: UP/DOWN step its value
+        self._confirm   = False   # MENU pressed once on RST: showing SURE
+        self._target    = None    # _target_ident() last seen, to flash a change
 
         # ASSIGN
         self._assign_layer       = 0
@@ -107,7 +123,7 @@ class MenuMode:
         self._slot       = 0   # remembered across visits: re-saving goes to the same slot
         self._used_slots = 0   # groove.used_slots() bitmask, read on entry
 
-        self._held_button    = None   # BTN_TEMPO_UP / BTN_TEMPO_DN / None
+        self._held_button    = None   # BTN_INC / BTN_DEC / None
         self._next_repeat_at = 0.0
 
         self._msg       = ""
@@ -118,8 +134,9 @@ class MenuMode:
     def enter(self):
         self._section     = _ROOT
         self._root_idx    = 0
+        self._editing     = False
+        self._confirm     = False
         self._held_button = None
-        self._flash_until = 0.0
         self._msg_until   = 0.0
         self._refresh_display()
 
@@ -127,19 +144,24 @@ class MenuMode:
         if self._section == _ASSIGN:
             self._assign_commit()
         self._section     = _ROOT
+        self._editing     = False
+        self._confirm     = False
         self._held_button = None
 
     def back(self, now):
         """PLAY/STOP pressed. Returns True if the menu should close (pressed
-        at root); otherwise steps back to root, cancelling ASSIGN."""
+        at root); otherwise steps back one level, cancelling ASSIGN."""
         self._held_button = None
+        self._msg_until   = 0.0
         if self._section == _ROOT:
             return True
-        if self._section == _ASSIGN:
-            self._assign_cancel()
-        self._section     = _ROOT
-        self._flash_until = 0.0
-        self._msg_until   = 0.0
+        if self._section == _SOUND and (self._editing or self._confirm):
+            self._editing = False   # back to the param list
+            self._confirm = False
+        else:
+            if self._section == _ASSIGN:
+                self._assign_cancel()
+            self._section = _ROOT
         self._refresh_display()
         return False
 
@@ -148,17 +170,11 @@ class MenuMode:
     def handle_event(self, event, now):
         etype, data = event
 
-        if etype == PAD_DOWN:
-            self._pad(data, now)
-
-        elif etype == BTN_DOWN and data == BTN_MENU:
+        if etype == BTN_DOWN and data == BTN_MENU:
             self._select(now)
 
-        elif etype == BTN_DOWN and data == BTN_RECORD:
-            self._record(now)
-
-        elif etype == BTN_DOWN and data in (BTN_TEMPO_UP, BTN_TEMPO_DN):
-            direction = 1 if data == BTN_TEMPO_UP else -1
+        elif etype == BTN_DOWN and data in (BTN_INC, BTN_DEC):
+            direction = 1 if data == BTN_INC else -1
             self._held_button    = data
             self._next_repeat_at = now + _REPEAT_DELAY
             self._step(direction, now)
@@ -169,23 +185,19 @@ class MenuMode:
     def update(self, now):
         """Call once per main-loop iteration while this overlay is active."""
         self._sync_assign_target()
+        if self._section == _SOUND:
+            self._sync_sound_target(now)
 
         if self._held_button is not None and now >= self._next_repeat_at:
-            direction = 1 if self._held_button == BTN_TEMPO_UP else -1
+            direction = 1 if self._held_button == BTN_INC else -1
             self._step(direction, now)
             self._next_repeat_at = now + _REPEAT_INTERVAL
 
         if self._assign_swap_at and now >= self._assign_swap_at:
             self._assign_apply()
 
-        refresh = False
-        if self._flash_until and now >= self._flash_until:
-            self._flash_until = 0.0
-            refresh = True
         if self._msg_until and now >= self._msg_until:
             self._msg_until = 0.0
-            refresh = True
-        if refresh:
             self._refresh_display()
 
     def refresh_display(self):
@@ -196,29 +208,19 @@ class MenuMode:
 
     # ── Dispatch per section ──────────────────────────────────────────────────
 
-    def _pad(self, pad, now):
-        if self._section == _ROOT:
-            if pad < len(_ROOT_ITEMS):
-                self._root_idx = pad
-        elif self._section == _SOUND:
-            self._selected_pad[self._page] = pad
-            self._flash_until = 0.0
-        elif self._section == _ASSIGN:
-            if pad < len(self._synth.list_instrument_names()):
-                self._assign_move(pad, now)
-        elif self._section in (_SAVE, _LOAD):
-            if pad < groove.NUM_SLOTS:
-                self._slot = pad
-        self._refresh_display()
-
     def _step(self, direction, now):
         if self._section == _ROOT:
             self._root_idx = (self._root_idx + direction) % len(_ROOT_ITEMS)
         elif self._section == _SOUND:
-            self._sound_step(direction, now)
+            self._sound_step(direction)
         elif self._section == _ASSIGN:
             count = len(self._synth.list_instrument_names())
             self._assign_move((self._assign_highlight + direction) % count, now)
+        elif self._section == _BPM:
+            if self._tempo_locked():
+                self._flash("LOCK", now)
+            else:
+                self._set_bpm(self._get_bpm() + direction)
         elif self._section in (_SAVE, _LOAD):
             self._slot = (self._slot + direction) % groove.NUM_SLOTS
         self._refresh_display()
@@ -226,14 +228,18 @@ class MenuMode:
     def _select(self, now):
         if self._section == _ROOT:
             action = _ROOT_ITEMS[self._root_idx][1]
-            if action == "sound":
+            if action == _SOUND:
                 self._enter_sound(now)
+            elif action == _BPM:
+                self._section = _BPM
+                if self._tempo_locked():
+                    self._flash("LOCK", now)
             elif action in (_SAVE, _LOAD):
                 self._section    = action
                 self._used_slots = groove.used_slots()
             elif not self._loop_active():
                 self._flash("N/A ", now)   # ASSIGN/EXTEND/MIRROR are loop-only
-            elif action == "assign":
+            elif action == _ASSIGN:
                 self._enter_assign()
             elif action == "extend":
                 self._flash("DONE" if self._looper.extend_loop(now) else "N/A ", now)
@@ -241,15 +247,24 @@ class MenuMode:
                 self._flash("DONE" if self._looper.mirror_active_layer(now) else "N/A ", now)
 
         elif self._section == _SOUND:
-            schema, _, _, reset, _ = self._edit_target()
-            entry = synth_params.schema_for(schema, self._page,
-                                            self._selected_pad[self._page])
-            if entry and entry["kind"] == "action":
+            schema, key, _, _, reset, _ = self._edit_target()
+            entry = schema[self._sound_idx[key]]
+            if self._editing:
+                self._editing = False
+            elif entry["kind"] != "action":
+                self._editing = True
+            elif self._confirm:
                 reset()
+                self._confirm = False
                 self._flash("DONE", now)
+            else:
+                self._confirm = True
 
         elif self._section == _ASSIGN:
             self._assign_commit()
+            self._section = _ROOT
+
+        elif self._section == _BPM:
             self._section = _ROOT
 
         elif self._section == _SAVE:
@@ -266,69 +281,71 @@ class MenuMode:
         self._held_button = None
         self._refresh_display()
 
-    def _record(self, now):
-        if self._section != _SOUND:
-            return
-        schema, _, _, _, kit_name = self._edit_target()
-        if _num_pages(schema) > 1:
-            self._page = 1 - self._page
-            self._flash_until = 0.0
-        elif self._loop_active() and kit_name is not None:
-            self._kit_pad = (self._kit_pad + 1) % NUM_PADS
-            self._flash(self._synth.channel_sound_name(self._looper.active_idx,
-                                                       self._kit_pad), now)
-        self._refresh_display()
-
     # ── SOUND ─────────────────────────────────────────────────────────────────
 
     def _enter_sound(self, now):
-        self._section     = _SOUND
-        self._kit_layer   = None   # reseed the kit cursor from the layer's last pad
-        self._flash_until = 0.0
-        _, _, _, _, kit_name = self._edit_target()
-        if kit_name is not None:
-            self._flash(kit_name, now)   # make clear which kit sound is being edited
+        self._section = _SOUND
+        self._editing = False
+        self._confirm = False
+        self._target  = None   # flash the target's name straight away
+        self._sync_sound_target(now)
+
+    def _target_ident(self):
+        """What SOUND is editing, cheaply enough to poll every frame:
+        (schema key, ...where). Changes on MODE, LOOP<->SEQ, or a pad played
+        on a kit layer."""
+        if not self._loop_active():
+            return ("drum", "track", self._seq.selected_track)
+        layer = self._looper.active_idx
+        if self._synth.layer_is_melodic(layer):
+            return ("voice", "layer", layer)
+        return ("drum", "layer", layer, self._looper.active_layer_last_pad)
+
+    def _sync_sound_target(self, now):
+        ident = self._target_ident()
+        if ident == self._target:
+            return
+        if self._target is not None and ident[0] != self._target[0]:
+            self._editing = False   # a different schema: its own params and highlight
+        self._target  = ident
+        self._confirm = False
+        self._flash(self._edit_target()[5], now)
+        self._refresh_display()
 
     def _edit_target(self):
-        """Return (schema, get(key), set(key, value), reset(), kit_name) for
-        whatever is currently editable. kit_name is the edited kit sound's
-        name, or None for a melodic voice. Resolved live off which top-level
-        mode is active, so this needs no explicit "mode changed" plumbing."""
+        """Return (schema, schema key, get(key), set(key, value), reset(),
+        name) for whatever is currently editable. schema key picks the
+        remembered highlight; name is the edited sound's (or voice's) name.
+        Resolved live off which top-level mode is active, so this needs no
+        explicit "mode changed" plumbing."""
         synth = self._synth
         if not self._loop_active():
-            track  = self._seq.selected_track
-            schema = synth_params.DRUM_PARAM_SCHEMA
-            get    = lambda key: synth.get_drum_param(track, key)
-            set_   = lambda key, value: synth.set_drum_param(track, key, value)
-            reset  = lambda: synth.reset_drum(track)
-            name   = synth.sound_name(track)
+            track = self._seq.selected_track
+            return (synth_params.DRUM_PARAM_SCHEMA, "drum",
+                    lambda k: synth.get_drum_param(track, k),
+                    lambda k, value: synth.set_drum_param(track, k, value),
+                    lambda: synth.reset_drum(track),
+                    synth.sound_name(track))
+        layer = self._looper.active_idx
+        if synth.layer_is_melodic(layer):
+            pad, schema, key = None, synth_params.PARAM_SCHEMA, "voice"
         else:
-            layer = self._looper.active_idx
-            if synth.layer_is_melodic(layer):
-                pad, schema, name = None, synth_params.PARAM_SCHEMA, None
-            else:
-                if self._kit_layer != layer:
-                    self._kit_layer = layer
-                    self._kit_pad   = self._looper.active_layer_last_pad
-                pad, schema = self._kit_pad, synth_params.DRUM_PARAM_SCHEMA
-                name = synth.channel_sound_name(layer, pad)
-            get   = lambda key: synth.get_channel_param(layer, pad, key)
-            set_  = lambda key, value: synth.set_channel_param(layer, pad, key, value)
-            reset = lambda: synth.reset_channel(layer, pad)
-        # A single-page schema (drum) can't be on page 2 -- e.g. after
-        # switching from a melodic layer's page 2 to a kit layer.
-        if self._page >= _num_pages(schema):
-            self._page = 0
-        return schema, get, set_, reset, name
+            pad, schema, key = (self._looper.active_layer_last_pad,
+                                synth_params.DRUM_PARAM_SCHEMA, "drum")
+        return (schema, key,
+                lambda k: synth.get_channel_param(layer, pad, k),
+                lambda k, value: synth.set_channel_param(layer, pad, k, value),
+                lambda: synth.reset_channel(layer, pad),
+                synth.channel_sound_name(layer, pad))
 
-    def _sound_step(self, direction, now):
-        schema, get, set_, _, _ = self._edit_target()
-        entry = synth_params.schema_for(schema, self._page,
-                                        self._selected_pad[self._page])
-        if entry is None or entry["kind"] == "action":
-            return
-        set_(entry["key"], synth_params.step_value(entry, get(entry["key"]), direction))
-        self._flash_until = now + _FLASH_DURATION
+    def _sound_step(self, direction):
+        schema, key, get, set_, _, _ = self._edit_target()
+        if self._editing:
+            entry = schema[self._sound_idx[key]]
+            set_(entry["key"], synth_params.step_value(entry, get(entry["key"]), direction))
+        else:
+            self._sound_idx[key] = (self._sound_idx[key] + direction) % len(schema)
+            self._confirm = False
 
     # ── ASSIGN ────────────────────────────────────────────────────────────────
 
@@ -406,7 +423,6 @@ class MenuMode:
         except (OSError, ValueError) as e:
             return groove.error_label(e)
         self._apply_groove(data, now)
-        self._kit_layer = None   # layers may have new instruments: reseed the kit cursor
         return "DONE"
 
     # ── Display ───────────────────────────────────────────────────────────────
@@ -419,44 +435,33 @@ class MenuMode:
         self._msg_until = now + _MSG_DURATION
 
     def _refresh_display(self):
-        upper = 0
-        if self._section == _ROOT:
-            lower = 1 << self._root_idx
-            text  = _ROOT_ITEMS[self._root_idx][0]
-
-        elif self._section == _ASSIGN:
-            lower = 1 << self._assign_highlight
-            text  = self._synth.list_instrument_names()[self._assign_highlight]
-
-        elif self._section in (_SAVE, _LOAD):
-            lower = 1 << self._slot
-            used  = self._used_slots & (1 << self._slot)
-            if self._section == _SAVE:
-                prefix = "OVR" if used else "SAV"
-            else:
-                prefix = "LOD" if used else "EMP"
-            text = f"{prefix}{self._slot + 1}"
-
-        else:
-            schema, get, _, _, _ = self._edit_target()
-            pad   = self._selected_pad[self._page]
-            entry = synth_params.schema_for(schema, self._page, pad)
-            lower = 1 << pad
-            upper = 1 << self._page   # LED 8 page 1, LED 9 page 2
-            if entry is None:
-                text = "    "
-            elif entry["kind"] != "action" and self._flash_until:
-                text = synth_params.format_value(entry, get(entry["key"]))
-            else:
-                text = entry["label"]
-
+        """The menu draws only the 4-char text -- the LEDs stay with the
+        active mode."""
         if self._msg_until:
             text = self._msg
 
-        self._display.set_leds_lower(lower)
-        self._display.set_leds_upper(upper)
+        elif self._section == _ROOT:
+            text = _ROOT_ITEMS[self._root_idx][0]
+
+        elif self._section == _SOUND:
+            schema, key, get, _, _, _ = self._edit_target()
+            entry = schema[self._sound_idx[key]]
+            if self._editing:
+                text = synth_params.format_value(entry, get(entry["key"]))
+            elif self._confirm:
+                text = "SURE"
+            else:
+                text = entry["label"]
+
+        elif self._section == _ASSIGN:
+            text = self._synth.list_instrument_names()[self._assign_highlight]
+
+        elif self._section == _BPM:
+            text = f"b{self._get_bpm():3d}"
+
+        else:   # SAVE / LOAD
+            prefix = "S" if self._section == _SAVE else "L"
+            used   = "*" if self._used_slots & (1 << self._slot) else " "
+            text   = f"{prefix}{self._slot + 1:02d}{used}"
+
         self._display.show(text)
-
-
-def _num_pages(schema):
-    return max(entry["page"] for entry in schema) + 1

@@ -743,7 +743,7 @@ class LooperMode:
         # would very slightly mismatch the sequencer's own step_dur-based
         # clock, causing the two to drift apart over long sessions even
         # though each is individually steady. Tempo can't have changed
-        # mid-recording: code.py blocks the tempo buttons for the whole
+        # mid-recording: code.py blocks the menu's BPM edit for the whole
         # "snap" session.
         bar_count = self._snap_bar_count
         self._snap_active         = False

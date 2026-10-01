@@ -3,9 +3,10 @@ Groove slots on the CIRCUITPY drive -- the menu's SAVE / LOAD.
 
 A groove is everything needed to pick a session back up: BPM, sync mode,
 the sequencer pattern, every committed loop layer, which instrument each
-layer has, and every sound edit (code.py's capture_groove builds it from
-each module's own snapshot). One JSON file per slot,
-/grooves/slot1.json .. slot8.json -- readable from a computer too.
+layer has, every sound edit and every channel volume (code.py's
+capture_groove builds it from each module's own snapshot). One JSON file
+per slot, /grooves/slot1.json .. slot16.json -- readable from a computer
+too.
 
 Pure file I/O: this module knows nothing about what's inside a groove.
 Writing needs boot.py's storage.remount(); without it every save fails
@@ -15,9 +16,8 @@ with a read-only error, which error_label() turns into "RO  ".
 import json
 import os
 
-from config import NUM_PADS
-
-NUM_SLOTS = NUM_PADS   # one slot per pad
+# The menu's slot labels ("S03*") have room for two digits, so at most 99.
+NUM_SLOTS = 16
 
 _DIR     = "/grooves"
 _VERSION = 1

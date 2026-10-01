@@ -6,6 +6,9 @@ DisplayManager wraps:
 AW9523 LED layout:
   LEDs  0-7  : primary row  (step on/off, pad-in-loop state)
   LEDs  8-15 : status row   (record, play, beat pulse, sequencer position)
+
+The focused mode always owns the LEDs. The 4-char text can be held by an
+overlay (the menu, or code.py's volume / LOCK flash) -- see hold_text().
 """
 
 import adafruit_aw9523
@@ -24,8 +27,14 @@ class DisplayManager:
         self._led_state = 0x0000     # bitmask, bit N = LED N, desired state
         self._led_hw_state = 0x0000  # bitmask reflecting what's currently on the wire
 
-        self._seg = segments.Seg14x4(i2c, address=config.ALPHANUM_ADDR)
+        # auto_write off: with it on, print() already sends the text and the
+        # explicit show() sent it a second time. _write_text() is the one
+        # place text goes out, and only when it changed.
+        self._seg = segments.Seg14x4(i2c, address=config.ALPHANUM_ADDR,
+                                     auto_write=False)
         self._seg.brightness = 0.5
+        self._text      = None   # what the display shows now (None = unknown)
+        self._text_held = False
 
         self.clear()
 
@@ -67,13 +76,24 @@ class DisplayManager:
 
     # ── Alphanumeric display helpers ──────────────────────────────────────────
 
+    def hold_text(self, held):
+        """While held, the modes' state readouts (show_looper_state /
+        show_sequencer_state) only update the LEDs, leaving the text to
+        whoever holds it. show() always writes."""
+        self._text_held = held
+
     def show(self, text):
         """Display up to 4 characters, left-aligned."""
-        self._seg.print(f"{text:<4}"[:4])
-        self._seg.show()
+        self._write_text(f"{text:<4}"[:4])
 
-    def show_bpm(self, bpm):
-        self._seg.print(f"b{bpm:3d}")
+    def _write_text(self, text):
+        """Send exactly 4 characters to the display, skipping the I2C write
+        (~1.7 ms at 100 kHz) if it already shows them -- the modes redraw
+        on every pad flash and loop wrap, mostly with unchanged text."""
+        if text == self._text:
+            return
+        self._text = text
+        self._seg.print(text)
         self._seg.show()
 
     def show_mode(self, mode_name):
@@ -100,9 +120,10 @@ class DisplayManager:
             upper |= (1 << (config.LED_PLAY - 8))
         self.set_leds_upper(upper)
 
+        if self._text_held:
+            return
         # Display: track number and page
-        self._seg.print(f"T{selected_track + 1}P{page + 1}")
-        self._seg.show()
+        self._write_text(f"T{selected_track + 1}P{page + 1}")
 
     def show_looper_state(self, active_pads_mask, state_name, bar_count,
                           layer_num=None, synced=False, transport_playing=True):
@@ -119,15 +140,16 @@ class DisplayManager:
             upper |= (1 << (config.LED_PLAY - 8))
         self.set_leds_upper(upper)
 
+        if self._text_held:
+            return
         if synced:
-            self._seg.print("SREC")   # snap-recording in progress
+            self._write_text("SREC")   # snap-recording in progress
         elif state_name in ("IDLE", "PLY ") and layer_num is not None:
             # The play LED already shows PLY (and IDLE has nothing to add),
             # so show which layer the pads preview instead.
-            self._seg.print(f"{'L' + str(layer_num):<4}"[:4])
+            self._write_text(f"{'L' + str(layer_num):<4}"[:4])
         else:
-            self._seg.print(f"{state_name:<4}"[:4])
-        self._seg.show()
+            self._write_text(f"{state_name:<4}"[:4])
 
     def clear(self):
         self.clear_leds()

@@ -28,8 +28,8 @@ _BTN_INFO = {
     config.BTN_RECORD:     ("REC ", config.LED_RECORD),
     config.BTN_PLAY_STOP:  ("PLAY", config.LED_PLAY),
     config.BTN_MODE:       ("MODE", 10),
-    config.BTN_TEMPO_UP:   ("TMP+", 11),
-    config.BTN_TEMPO_DN:   ("TMP-", 12),
+    config.BTN_INC:        ("UP  ", 11),
+    config.BTN_DEC:        ("DOWN", 12),
     config.BTN_MUTE:       ("MUTE", 13),
     config.BTN_MENU:       ("MENU", 14),
 }

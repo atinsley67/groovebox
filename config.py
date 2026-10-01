@@ -12,6 +12,11 @@ I2S_WORD_SELECT = board.GP20
 I2C_SDA = board.GP16
 I2C_SCL = board.GP17
 
+# 400 kHz (I2C fast mode, which both chips support) makes every display and
+# LED write ~4x quicker than the 100 kHz default. If the display or LEDs
+# glitch, or the board fails to start, go back to 100000.
+I2C_FREQUENCY = 400000
+
 ALPHANUM_ADDR   = 0x70  # Adafruit quad 14-segment display (HT16K33)
 LED_DRIVER_ADDR = 0x5B  # Adafruit AW9523 GPIO/LED driver with address pins soldered to make LEDS off at startup
 
@@ -27,8 +32,8 @@ PAD_PINS = [
 BTN_MODE_PIN      = board.GP8   # cycle layer/track (short), switch mode (long), select channel (hold+pad)
 BTN_RECORD_PIN    = board.GP9   # arm record / cycle step page
 BTN_PLAY_STOP_PIN = board.GP10  # global play/pause (short), clear active mode (2 s long)
-BTN_TEMPO_UP_PIN  = board.GP11
-BTN_TEMPO_DN_PIN  = board.GP12
+BTN_INC_PIN       = board.GP11  # UP: active channel's volume up; menu: highlight / value up
+BTN_DEC_PIN       = board.GP12  # DOWN: active channel's volume down; menu: highlight / value down
 BTN_MUTE_PIN      = board.GP13  # mute/unmute active layer (short), clear active layer (0.6 s long)
 BTN_MENU_PIN      = board.GP14  # open the MENU overlay; "select" while it's open
 
@@ -36,10 +41,17 @@ BTN_MENU_PIN      = board.GP14  # open the MENU overlay; "select" while it's ope
 BTN_MODE        = "mode"
 BTN_RECORD      = "rec"
 BTN_PLAY_STOP   = "play"
-BTN_TEMPO_UP    = "t+"
-BTN_TEMPO_DN    = "t-"
+# The UP / DOWN keys. Not BTN_UP / BTN_DOWN: those are the button
+# press/release event types (event_types.py).
+BTN_INC         = "inc"
+BTN_DEC         = "dec"
 BTN_MUTE        = "mute"
 BTN_MENU        = "menu"
+
+# ── Diagnostics ───────────────────────────────────────────────────────────────
+# True: print main-loop timing to the serial console every 5 s (see
+# timing_probe.py). Leave False for normal playing.
+TIMING_PROBE = False
 
 # ── Audio ─────────────────────────────────────────────────────────────────────
 SAMPLE_RATE = 22050

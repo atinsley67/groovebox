@@ -13,8 +13,8 @@ _FUNC_BUTTONS = [
     (config.BTN_MODE_PIN,      config.BTN_MODE),
     (config.BTN_RECORD_PIN,    config.BTN_RECORD),
     (config.BTN_PLAY_STOP_PIN, config.BTN_PLAY_STOP),
-    (config.BTN_TEMPO_UP_PIN,  config.BTN_TEMPO_UP),
-    (config.BTN_TEMPO_DN_PIN,  config.BTN_TEMPO_DN),
+    (config.BTN_INC_PIN,       config.BTN_INC),
+    (config.BTN_DEC_PIN,       config.BTN_DEC),
     (config.BTN_MUTE_PIN,      config.BTN_MUTE),
     (config.BTN_MENU_PIN,      config.BTN_MENU),
 ]
@@ -22,7 +22,8 @@ _FUNC_BUTTONS = [
 
 class Hardware:
     def __init__(self):
-        self.i2c = busio.I2C(config.I2C_SCL, config.I2C_SDA)
+        self.i2c = busio.I2C(config.I2C_SCL, config.I2C_SDA,
+                             frequency=config.I2C_FREQUENCY)
 
         # Pad buttons
         self._pads = []
