@@ -32,6 +32,7 @@ Sync modes (sync_mode variable):
 import time
 import traceback
 
+import clock
 import config
 from config import (DEFAULT_BPM, STEPS_PER_BAR,
                     MODE_LOOPER, NUM_MODES, MODE_NAMES,
@@ -96,11 +97,29 @@ def main():
     step_dur = step_duration(bpm)
     seq.step_dur = step_dur
 
-    # Clock state
+    # Clock state. Tick n of the current run is due at
+    # tick_anchor + n * step_dur -- computed by multiplication, never by
+    # adding step_dur onto the previous tick: CircuitPython's ~22-bit floats
+    # round every addition, and at most tempos that rounding is the same
+    # every step, so an accumulated clock slowly drifts off the loop (whose
+    # own positions are play_start + n * loop_duration). Re-anchored on
+    # resume and on every BPM change.
     step         = 0
     beat_count   = 0
-    last_tick_at = time.monotonic()
+    tick_anchor  = 0.0
+    tick_count   = 0       # ticks fired since tick_anchor
     seq_was_playing = False   # edge-detects seq.playing to reset the clock on resume
+
+    def set_bpm(new_bpm):
+        """Change tempo without a jump: the next tick lands one *new* step
+        after the last one that fired."""
+        nonlocal bpm, step_dur, tick_anchor, tick_count
+        if tick_count > 0:
+            tick_anchor += (tick_count - 1) * step_dur   # the last tick fired
+            tick_count   = 1
+        bpm      = max(40, min(300, new_bpm))
+        step_dur = step_duration(bpm)
+        seq.step_dur = step_dur
 
     # BPM flash
     bpm_display_until = 0.0
@@ -132,15 +151,13 @@ def main():
         stopped first, so PLAY afterwards starts everything from the top --
         a synced groove's loop and sequencer come back lockstepped the same
         way they do on any resume."""
-        nonlocal bpm, step_dur, sync_mode
+        nonlocal sync_mode
         seq.set_playing(False)
         looper.set_playing(False, now)
         synth.restore_sounds(data.get("sounds", {}))
         seq.restore(data.get("seq", {}))
         looper.restore(data.get("loop", {}))
-        bpm = max(40, min(300, int(data.get("bpm", DEFAULT_BPM))))
-        step_dur = step_duration(bpm)
-        seq.step_dur = step_dur
+        set_bpm(int(data.get("bpm", DEFAULT_BPM)))
         # A synced loop was recorded against this exact BPM; restoring
         # "snap" re-locks the tempo buttons so the two can't drift apart.
         sync_mode = data.get("sync", "none")
@@ -163,7 +180,7 @@ def main():
     disp.show(MODE_NAMES[mode_index])
 
     while True:
-        now    = time.monotonic()
+        now    = clock.now()
         events = hw.scan()
 
         # ── Filter and intercept global buttons ───────────────────────────────
@@ -303,9 +320,7 @@ def main():
                     bpm_display_until = now + _BPM_DISPLAY_HOLD
                 else:
                     active.set_display_owner(False)
-                    bpm = min(bpm + 1, 300)
-                    step_dur = step_duration(bpm)
-                    seq.step_dur = step_dur
+                    set_bpm(bpm + 1)
                     disp.show_bpm(bpm)
                     bpm_display_until = now + _BPM_DISPLAY_HOLD
                     tempo_held_dir  = 1
@@ -320,9 +335,7 @@ def main():
                     bpm_display_until = now + _BPM_DISPLAY_HOLD
                 else:
                     active.set_display_owner(False)
-                    bpm = max(bpm - 1, 40)
-                    step_dur = step_duration(bpm)
-                    seq.step_dur = step_dur
+                    set_bpm(bpm - 1)
                     disp.show_bpm(bpm)
                     bpm_display_until = now + _BPM_DISPLAY_HOLD
                     tempo_held_dir  = -1
@@ -368,12 +381,7 @@ def main():
         # ── TEMPO hold-to-repeat ────────────────────────────────────────────────
         if tempo_held_dir and now >= tempo_repeat_at:
             tempo_repeat_at = now + _TEMPO_REPEAT_INTERVAL
-            if tempo_held_dir > 0:
-                bpm = min(bpm + 1, 300)
-            else:
-                bpm = max(bpm - 1, 40)
-            step_dur = step_duration(bpm)
-            seq.step_dur = step_dur
+            set_bpm(bpm + tempo_held_dir)
             active.set_display_owner(False)
             disp.show_bpm(bpm)
             bpm_display_until = now + _BPM_DISPLAY_HOLD
@@ -410,26 +418,30 @@ def main():
         # back perfectly aligned, instead of the sequencer continuing from
         # wherever mid-step it happened to be paused while the loop resumes
         # phase-perfect, which is what used to knock the two out of sync.
-        # last_tick_at is backdated by a full step_dur (rather than set to
-        # `now`) so the TICK(0) check just below fires immediately, this
+        # The anchor is `now` itself, so TICK(0) fires immediately, this
         # same frame -- matching looper.set_playing's own immediate fire of
         # any event recorded at loop position 0.0 (elapsed=0 the instant
-        # play_start is reset). Setting last_tick_at = now would leave
-        # TICK(0) firing a full step late, so the loop's beat-1 hits would
-        # land a step ahead of the sequencer's every time you pause/resume.
+        # play_start is reset to the same `now`).
         if seq.playing and not seq_was_playing:
-            step         = 0
-            last_tick_at = now - step_dur
+            step        = 0
+            tick_anchor = now
+            tick_count  = 0
         seq_was_playing = seq.playing
 
         if seq.playing:
-            if now - last_tick_at >= step_dur:
-                last_tick_at += step_dur
+            tick_at = tick_anchor + tick_count * step_dur
+            if now >= tick_at:
+                tick_count += 1
 
+                # Dispatched with the time the tick was *due*, not this
+                # frame's `now` (which is late by however long the frame
+                # took): a synced take's loop_start is anchored to the
+                # TICK(0) that starts it, so it lands exactly on the
+                # sequencer's grid instead of a frame behind it.
                 tick_evt = (TICK, step)
-                seq.handle_event(tick_evt, now)
+                seq.handle_event(tick_evt, tick_at)
                 if looper.clock_needed:
-                    looper.handle_event(tick_evt, now)
+                    looper.handle_event(tick_evt, tick_at)
 
                 if step % 4 == 0:
                     beat_evt = (BEAT, beat_count)

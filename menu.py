@@ -45,8 +45,7 @@ SAVE / LOAD (either mode): pick one of 8 groove slots (see groove.py) --
   Loading replaces the whole session and stops the transport.
 """
 
-import time
-
+import clock
 import groove
 import synth_params
 from event_types import PAD_DOWN, BTN_DOWN, BTN_UP
@@ -254,14 +253,14 @@ class MenuMode:
             self._section = _ROOT
 
         elif self._section == _SAVE:
-            self._flash(self._save(), time.monotonic())
+            self._flash(self._save(), clock.now())
             self._section = _ROOT
 
         elif self._section == _LOAD:
             if not self._used_slots & (1 << self._slot):
                 self._flash("N/A ", now)
             else:
-                self._flash(self._load(now), time.monotonic())
+                self._flash(self._load(now), clock.now())
                 self._section = _ROOT
 
         self._held_button = None
@@ -390,7 +389,7 @@ class MenuMode:
             self._enter_assign()
 
     # ── SAVE / LOAD ───────────────────────────────────────────────────────────
-    # Both return the status to flash. Flashed from time.monotonic() rather
+    # Both return the status to flash. Flashed from clock.now() rather
     # than the press time: a flash write can take long enough to use up the
     # whole message window before it's ever drawn.
 

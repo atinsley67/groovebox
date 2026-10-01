@@ -760,7 +760,7 @@ class LooperMode:
     def _start_layer_playback(self, layer):
         """Begin playback. Recorded event positions are already relative to
         the real moment this recording started (self._loop_start), and
-        time.monotonic() doesn't drift, so anchoring play_start there is
+        clock.now() doesn't drift, so anchoring play_start there is
         all that's needed to keep this layer in phase with every other
         layer -- no re-derivation from another layer's current position."""
         layer.play_start    = self._loop_start

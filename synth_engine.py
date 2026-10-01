@@ -1,7 +1,7 @@
 import audiobusio
 import synthio
-import time
 
+import clock
 import config
 from sound_presets import (build_kit_instance, instantiate_instrument,
                            INSTRUMENT_NAMES, WAVEFORM_TABLES)
@@ -357,7 +357,7 @@ class SynthEngine:
             # Percussive: release immediately; envelope handles the tail.
             self._synth.release(notes)
         else:
-            release_at = time.monotonic() + hold_ms / 1000.0
+            release_at = clock.now() + hold_ms / 1000.0
             key = notes[0]
             # Remove stale entry for this voice if any
             self._pending_releases = [r for r in self._pending_releases if r[1] is not key]
@@ -372,7 +372,7 @@ class SynthEngine:
         """Process scheduled releases. Call once per main-loop iteration."""
         if not self._pending_releases:
             return
-        now = time.monotonic()
+        now = clock.now()
         still_pending = []
         for release_at, key, notes in self._pending_releases:
             if now >= release_at:
