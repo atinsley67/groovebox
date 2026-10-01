@@ -1,16 +1,16 @@
 """
-Parameter schemas for live sound editing (SYNTH EDIT mode).
+Parameter schemas for live sound editing (the menu's SOUND section).
 
 Pure data plus stepping/formatting helpers -- no synthio or hardware
 dependency, so this module has no project-local imports and is safe to
 exercise standalone.
 
-PARAM_SCHEMA covers the 7 melodic loop-layer voices (see
+PARAM_SCHEMA covers the melodic voices (see
 synth_engine.SynthEngine._apply_voice_params). DRUM_PARAM_SCHEMA is a
-smaller, range-limited schema for the 8 fixed drum/bass/lead sounds shared
-by the sequencer and the looper's kit layer (see
-SynthEngine._apply_drum_params). synth_edit.py picks whichever schema
-applies and drives the pad grid / display from it.
+smaller, range-limited schema for the 8 drum-kit sounds -- the
+sequencer's kit, or any loop layer assigned KIT (see
+SynthEngine._apply_drum_params). menu.py picks whichever schema applies
+and drives the pad grid / display from it.
 """
 
 # Waveform count/order must match sound_presets.WAVEFORM_TABLES.
@@ -26,7 +26,7 @@ PAGE_2 = 1
 #                   params like time/frequency) or "linear" (fixed delta,
 #                   for already-bounded 0..1-ish params)
 #   "discrete"   - cycles through `count` integer values (0..count-1)
-#   "action"     - no value; synth_edit.py triggers it on a pad hold
+#   "action"     - no value; menu.py triggers it on MENU while it's selected
 PARAM_SCHEMA = [
     {"page": PAGE_1, "pad": 0, "key": "amp", "label": "AMP ",
      "kind": "continuous", "step_kind": "linear", "step": 0.05,
@@ -70,8 +70,8 @@ PARAM_SCHEMA = [
      "kind": "action"},
 ]
 
-# Reduced, range-limited schema for the 8 fixed drum/bass/lead sounds shared
-# by the sequencer and the looper's kit layer (sound_presets.build_sounds()).
+# Reduced, range-limited schema for the 8 drum-kit sounds
+# (sound_presets.build_kit_instance()).
 # No WAVE swap and tighter attack/decay ceilings than PARAM_SCHEMA, so edits
 # reshape a sound rather than turning it into a sustained melodic voice.
 DRUM_PARAM_SCHEMA = [

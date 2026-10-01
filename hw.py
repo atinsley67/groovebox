@@ -1,8 +1,8 @@
 import busio
 import digitalio
-import time
 import board
 
+import clock
 import config
 from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, BTN_UP
 
@@ -16,7 +16,7 @@ _FUNC_BUTTONS = [
     (config.BTN_TEMPO_UP_PIN,  config.BTN_TEMPO_UP),
     (config.BTN_TEMPO_DN_PIN,  config.BTN_TEMPO_DN),
     (config.BTN_MUTE_PIN,      config.BTN_MUTE),
-    (config.BTN_SYNTH_EDIT_PIN, config.BTN_SYNTH_EDIT),
+    (config.BTN_MENU_PIN,      config.BTN_MENU),
 ]
 
 
@@ -43,7 +43,7 @@ class Hardware:
         # Debounce state: (last_raw_value, stable_value, last_change_time)
         n_pads = len(self._pads)
         n_func = len(self._func)
-        now = time.monotonic()
+        now = clock.now()
         self._pad_state  = [(True, True, now)] * n_pads
         self._func_state = [(True, True, now)] * n_func
 
@@ -54,7 +54,7 @@ class Hardware:
         callers doing precise timing (e.g. recording loop position) get the
         real press moment instead of one _DEBOUNCE (20ms) late, every time."""
         events = []
-        now = time.monotonic()
+        now = clock.now()
 
         for i, btn in enumerate(self._pads):
             raw, stable, last_t = self._pad_state[i]

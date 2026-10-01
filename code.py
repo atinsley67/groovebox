@@ -12,22 +12,32 @@ MODE button gesture handling (intercepted here, not passed to modes):
   Short press alone  — cycle active layer / track within current mode
   Long press alone   — switch global mode (looper ↔ sequencer)
   Hold + pad press   — jump directly to that layer / track
+  (All three keep working while the MENU overlay is open; it retargets.)
+
+MENU overlay (menu.py): BTN_MENU opens it; while open, MENU is "select"
+and PLAY/STOP is "back" (closing it from root) instead of the transport.
+Its SAVE / LOAD items call back into capture_groove / apply_groove below,
+since BPM and sync mode live here.
 
 Sync modes (sync_mode variable):
   "none"     — no loop recorded yet; modes are fully independent
   "snap"     — sequencer was playing when looper started recording; both play
-               simultaneously; BPM changes blocked to prevent drift
+               simultaneously and PLAY/STOP controls both; BPM changes blocked
+               to prevent drift while any loop content exists. Clearing every
+               layer keeps "snap" if the sequencer is still running (the link
+               stays, BPM unlocks until the next synced take is armed)
   "freeform" — looper recorded without sequencer; sequencer mode entry blocked
 """
 
 import time
 import traceback
 
+import clock
 import config
 from config import (DEFAULT_BPM, STEPS_PER_BAR,
                     MODE_LOOPER, NUM_MODES, MODE_NAMES,
                     BTN_MODE, BTN_RECORD, BTN_PLAY_STOP, BTN_TEMPO_UP, BTN_TEMPO_DN,
-                    BTN_SYNTH_EDIT, NUM_KIT_LAYERS)
+                    BTN_MENU)
 from event_types import BTN_DOWN, BTN_UP, PAD_DOWN, TICK, BEAT
 
 from hw          import Hardware
@@ -35,7 +45,7 @@ from synth_engine import SynthEngine
 from display     import DisplayManager
 from looper      import LooperMode
 from sequencer   import SequencerMode
-from synth_edit  import SynthEditMode
+from menu        import MenuMode
 import startup
 
 _MODE_LONG_PRESS      = 0.6  # seconds: hold BTN_MODE with no pad to switch global mode
@@ -60,14 +70,13 @@ def main():
 
     seq        = SequencerMode(synth, disp)
     looper     = LooperMode(synth, disp, seq)
-    synth_edit = SynthEditMode(synth, disp, looper, seq, lambda: active)
 
     modes      = [looper, seq]
     mode_index = MODE_LOOPER
     active     = modes[mode_index]
     active.enter()
 
-    synth_edit_active = False
+    menu_active = False
 
     # ── Sync coordinator ──────────────────────────────────────────────────────
     sync_mode = "none"
@@ -79,16 +88,38 @@ def main():
     # looper.transport_playing are the source of truth (no separate mirror
     # var here); both start stopped.
     play_stop_pressed_at = 0.0
+    # Set when a PLAY/STOP press was handled by the menu as "back": its
+    # release must be swallowed too, or a back that closes the menu (on
+    # press) would have its release read as a transport short press.
+    play_stop_swallow_up = False
 
     bpm      = DEFAULT_BPM
     step_dur = step_duration(bpm)
     seq.step_dur = step_dur
 
-    # Clock state
+    # Clock state. Tick n of the current run is due at
+    # tick_anchor + n * step_dur -- computed by multiplication, never by
+    # adding step_dur onto the previous tick: CircuitPython's ~22-bit floats
+    # round every addition, and at most tempos that rounding is the same
+    # every step, so an accumulated clock slowly drifts off the loop (whose
+    # own positions are play_start + n * loop_duration). Re-anchored on
+    # resume and on every BPM change.
     step         = 0
     beat_count   = 0
-    last_tick_at = time.monotonic()
+    tick_anchor  = 0.0
+    tick_count   = 0       # ticks fired since tick_anchor
     seq_was_playing = False   # edge-detects seq.playing to reset the clock on resume
+
+    def set_bpm(new_bpm):
+        """Change tempo without a jump: the next tick lands one *new* step
+        after the last one that fired."""
+        nonlocal bpm, step_dur, tick_anchor, tick_count
+        if tick_count > 0:
+            tick_anchor += (tick_count - 1) * step_dur   # the last tick fired
+            tick_count   = 1
+        bpm      = max(40, min(300, new_bpm))
+        step_dur = step_duration(bpm)
+        seq.step_dur = step_dur
 
     # BPM flash
     bpm_display_until = 0.0
@@ -105,10 +136,51 @@ def main():
     tempo_held_dir  = 0     # 0 = neither held, +1 = TEMPO_UP held, -1 = TEMPO_DN held
     tempo_repeat_at = 0.0   # next scheduled auto-repeat bump, while tempo_held_dir != 0
 
+    # ── Grooves: the menu's SAVE / LOAD (file I/O lives in groove.py) ─────────
+    def capture_groove():
+        return {
+            "bpm":    bpm,
+            "sync":   sync_mode,
+            "seq":    seq.snapshot(),
+            "loop":   looper.snapshot(),
+            "sounds": synth.snapshot_sounds(),
+        }
+
+    def apply_groove(data, now):
+        """Replace the whole session with a loaded groove. The transport is
+        stopped first, so PLAY afterwards starts everything from the top --
+        a synced groove's loop and sequencer come back lockstepped the same
+        way they do on any resume."""
+        nonlocal sync_mode
+        seq.set_playing(False)
+        looper.set_playing(False, now)
+        synth.restore_sounds(data.get("sounds", {}))
+        seq.restore(data.get("seq", {}))
+        looper.restore(data.get("loop", {}))
+        set_bpm(int(data.get("bpm", DEFAULT_BPM)))
+        # A synced loop was recorded against this exact BPM; restoring
+        # "snap" re-locks the tempo buttons so the two can't drift apart.
+        sync_mode = data.get("sync", "none")
+        if looper.is_idle or sync_mode not in ("snap", "freeform"):
+            sync_mode = "none"
+        looper.set_snap_mode(sync_mode == "snap")
+
+    menu = MenuMode(synth, disp, looper, seq, lambda: active,
+                    capture_groove, apply_groove)
+
+    def tempo_locked():
+        """BPM changes are blocked whenever a loop depends on the current
+        tempo: a synced session with loop content (or a take armed/in
+        progress -- is_idle covers both), or a playing freeform loop (BPM
+        only drives the sequencer's clock, which a freeform loop was never
+        anchored to, so a change would do nothing audible)."""
+        return ((sync_mode == "snap" and not looper.is_idle) or
+                (sync_mode == "freeform" and looper.is_playing))
+
     disp.show(MODE_NAMES[mode_index])
 
     while True:
-        now    = time.monotonic()
+        now    = clock.now()
         events = hw.scan()
 
         # ── Filter and intercept global buttons ───────────────────────────────
@@ -146,12 +218,12 @@ def main():
                     elif sync_mode == "snap" and looper.is_playing:
                         mode_index = target_index
                         active = modes[mode_index]
-                        if synth_edit_active:
+                        if menu_active:
                             # Overlay stays open across the switch; it keeps the
                             # display, it just retargets to the new active mode.
                             looper.set_display_owner(False)
                             seq.set_display_owner(False)
-                            synth_edit.refresh_display()
+                            menu.refresh_display()
                         else:
                             looper.set_display_owner(active is looper)
                             seq.set_display_owner(active is seq)
@@ -163,35 +235,48 @@ def main():
                         mode_index = target_index
                         active = modes[mode_index]
                         active.enter()
-                        if synth_edit_active:
+                        if menu_active:
                             # enter() just claimed the display; hand it back to
                             # the still-open overlay instead of showing mode name.
                             active.set_display_owner(False)
-                            synth_edit.refresh_display()
+                            menu.refresh_display()
                         else:
                             disp.show(MODE_NAMES[mode_index])
 
                 else:
                     # Short press: cycle active layer / track
                     active.cycle_channel()
-                    if synth_edit_active:
-                        synth_edit.refresh_display()
+                    if menu_active:
+                        menu.refresh_display()
 
             # ── Pad while MODE held: jump to layer / track ────────────────────
             elif etype == PAD_DOWN and mode_held:
                 active.select_channel(data)
                 mode_pad_consumed = True
                 # Suppress: don't trigger synth or record step
-                if synth_edit_active:
-                    synth_edit.refresh_display()
+                if menu_active:
+                    menu.refresh_display()
 
-            # ── PLAY/STOP button: global transport ────────────────────────────
+            # ── PLAY/STOP button: global transport, or "back" in the menu ─────
             elif etype == BTN_DOWN and data == BTN_PLAY_STOP:
-                play_stop_pressed_at = now
+                if menu_active:
+                    # Acts on press -- the menu has no long press, and the
+                    # transport's 2 s clear must never fire from in here.
+                    play_stop_swallow_up = True
+                    if menu.back(event_time):
+                        menu.exit()
+                        menu_active = False
+                        active.set_display_owner(True)
+                else:
+                    play_stop_pressed_at = now
                 # Not forwarded to active mode
 
             elif etype == BTN_UP and data == BTN_PLAY_STOP:
-                if now - play_stop_pressed_at >= _PLAY_STOP_LONG_PRESS:
+                if play_stop_swallow_up or menu_active:
+                    # Release of a menu "back" (or of a press begun before
+                    # the menu opened): never a transport action.
+                    play_stop_swallow_up = False
+                elif now - play_stop_pressed_at >= _PLAY_STOP_LONG_PRESS:
                     active.clear_all()
                 elif sync_mode == "snap":
                     # Loop and sequencer are explicitly linked for this
@@ -212,63 +297,45 @@ def main():
                     # next time a layer is armed.
                     looper.set_playing(not looper.transport_playing, now)
 
-            # ── SYNTH EDIT button: toggle the sound-editing overlay ──────────
-            elif etype == BTN_DOWN and data == BTN_SYNTH_EDIT:
-                if synth_edit_active:
-                    synth_edit.exit()
-                    if active is looper:
-                        looper.set_display_owner(True)
-                    else:
-                        seq.set_display_owner(True)
-                    synth_edit_active = False
-                    active.refresh_display()
-                elif not (active is looper and looper.active_idx < NUM_KIT_LAYERS):
-                    if active is looper:
-                        looper.set_display_owner(False)
-                    else:
-                        seq.set_display_owner(False)
-                    synth_edit.enter()
-                    synth_edit_active = True
+            # ── MENU button: open the overlay; "select" once it's open ───────
+            elif etype == BTN_DOWN and data == BTN_MENU:
+                if menu_active:
+                    filtered.append(event)
                 else:
                     active.set_display_owner(False)
-                    disp.show("N/A ")
-                    bpm_display_until = now + 0.4
+                    # A TEMPO still held for BPM auto-repeat would otherwise
+                    # keep bumping BPM and painting over the menu.
+                    tempo_held_dir = 0
+                    menu.enter()
+                    menu_active = True
 
-            # ── Tempo buttons: BPM, unless SYNTH EDIT owns them right now ─────
+            # ── Tempo buttons: BPM, unless the menu owns them right now ──────
             elif etype == BTN_DOWN and data == BTN_TEMPO_UP:
-                if synth_edit_active:
+                if menu_active:
                     filtered.append(event)
-                elif sync_mode == "snap" or (sync_mode == "freeform" and looper.is_playing):
-                    # Same rule as blocking a switch to SEQ mid-freeform-loop
-                    # (see BTN_MODE above): BPM drives only the sequencer's
-                    # clock, which a playing freeform loop was never anchored
-                    # to, so changing it here would do nothing audible --
-                    # block it and flash LOCK instead of a no-op BPM readout.
+                elif tempo_locked():
+                    # Flash LOCK instead of a BPM readout -- see tempo_locked().
                     active.set_display_owner(False)
                     disp.show("LOCK")
                     bpm_display_until = now + _BPM_DISPLAY_HOLD
                 else:
                     active.set_display_owner(False)
-                    bpm = min(bpm + 1, 300)
-                    step_dur = step_duration(bpm)
-                    seq.step_dur = step_dur
+                    set_bpm(bpm + 1)
                     disp.show_bpm(bpm)
                     bpm_display_until = now + _BPM_DISPLAY_HOLD
                     tempo_held_dir  = 1
                     tempo_repeat_at = now + _TEMPO_REPEAT_DELAY
 
             elif etype == BTN_DOWN and data == BTN_TEMPO_DN:
-                if synth_edit_active:
+                if menu_active:
                     filtered.append(event)
-                elif sync_mode == "snap" or (sync_mode == "freeform" and looper.is_playing):
+                elif tempo_locked():
                     active.set_display_owner(False)
                     disp.show("LOCK")
                     bpm_display_until = now + _BPM_DISPLAY_HOLD
                 else:
                     active.set_display_owner(False)
-                    bpm = max(bpm - 1, 40)
-                    step_dur = step_duration(bpm)
-                    seq.step_dur = step_dur
+                    set_bpm(bpm - 1)
                     disp.show_bpm(bpm)
                     bpm_display_until = now + _BPM_DISPLAY_HOLD
                     tempo_held_dir  = -1
@@ -277,25 +344,18 @@ def main():
             # ── Tempo buttons: release -- consumed here so the active mode
             #    never sees it (its own unconditional refresh_display() on
             #    any event would stomp the BPM/LOCK readout we just showed).
-            #    Still forwarded while SYNTH EDIT owns the buttons, to keep
+            #    Still forwarded while the menu owns the buttons, to keep
             #    it paired with the BTN_DOWN it already receives.
             elif etype == BTN_UP and data in (BTN_TEMPO_UP, BTN_TEMPO_DN):
-                if synth_edit_active:
+                if menu_active:
                     filtered.append(event)
                 tempo_held_dir = 0
 
             else:
                 filtered.append(event)
 
-        # ── SYNTH EDIT: auto-exit only if we've landed on the looper's kit layer ──
-        if synth_edit_active and active is looper and looper.active_idx < NUM_KIT_LAYERS:
-            synth_edit.exit()
-            looper.set_display_owner(True)
-            synth_edit_active = False
-            active.refresh_display()
-
         # ── Sync coordinator: detect looper arm while sequencer is playing ────
-        if not synth_edit_active:
+        if not menu_active:
             for event in filtered:
                 etype, data, event_time = event
                 if etype == BTN_DOWN and data == BTN_RECORD:
@@ -307,26 +367,21 @@ def main():
                             sync_mode = "freeform"
                             looper.set_snap_mode(False)
 
-        # ── Dispatch remaining events to active mode (or the SYNTH EDIT overlay) ─
+        # ── Dispatch remaining events to active mode (or the menu overlay) ───
         # Each event is dispatched with its own true press/release time
         # (event_time), not this frame's `now` -- see hw.scan().
         for event in filtered:
             etype, data, event_time = event
             mode_event = (etype, data)
-            if synth_edit_active:
-                synth_edit.handle_event(mode_event, event_time)
+            if menu_active:
+                menu.handle_event(mode_event, event_time)
             else:
                 active.handle_event(mode_event, event_time)
 
         # ── TEMPO hold-to-repeat ────────────────────────────────────────────────
         if tempo_held_dir and now >= tempo_repeat_at:
             tempo_repeat_at = now + _TEMPO_REPEAT_INTERVAL
-            if tempo_held_dir > 0:
-                bpm = min(bpm + 1, 300)
-            else:
-                bpm = max(bpm - 1, 40)
-            step_dur = step_duration(bpm)
-            seq.step_dur = step_dur
+            set_bpm(bpm + tempo_held_dir)
             active.set_display_owner(False)
             disp.show_bpm(bpm)
             bpm_display_until = now + _BPM_DISPLAY_HOLD
@@ -334,8 +389,8 @@ def main():
         # ── Restore display after BPM / LOCK flash ────────────────────────────
         if bpm_display_until and now >= bpm_display_until:
             bpm_display_until = 0.0
-            if synth_edit_active:
-                synth_edit.refresh_display()
+            if menu_active:
+                menu.refresh_display()
             else:
                 # Also un-suppresses the ownership the flash claimed above
                 # (set_display_owner(True) refreshes on its own), letting
@@ -344,7 +399,12 @@ def main():
 
         # ── Sync coordinator: frame checks ────────────────────────────────────
         if looper.was_cleared:
-            sync_mode = "none"
+            # Every layer cleared (or a first-layer arm cancelled): with the
+            # sequencer still running, stay linked so PLAY/STOP keeps
+            # controlling it from LOOP focus too, and the next take syncs to
+            # it anyway. Otherwise nothing is left to link.
+            sync_mode = "snap" if seq.playing else "none"
+            looper.set_snap_mode(sync_mode == "snap")
 
         # ── Drive tempo clock ─────────────────────────────────────────────────
         # Gated on the sequencer's own playing state, not the looper's --
@@ -358,26 +418,30 @@ def main():
         # back perfectly aligned, instead of the sequencer continuing from
         # wherever mid-step it happened to be paused while the loop resumes
         # phase-perfect, which is what used to knock the two out of sync.
-        # last_tick_at is backdated by a full step_dur (rather than set to
-        # `now`) so the TICK(0) check just below fires immediately, this
+        # The anchor is `now` itself, so TICK(0) fires immediately, this
         # same frame -- matching looper.set_playing's own immediate fire of
         # any event recorded at loop position 0.0 (elapsed=0 the instant
-        # play_start is reset). Setting last_tick_at = now would leave
-        # TICK(0) firing a full step late, so the loop's beat-1 hits would
-        # land a step ahead of the sequencer's every time you pause/resume.
+        # play_start is reset to the same `now`).
         if seq.playing and not seq_was_playing:
-            step         = 0
-            last_tick_at = now - step_dur
+            step        = 0
+            tick_anchor = now
+            tick_count  = 0
         seq_was_playing = seq.playing
 
         if seq.playing:
-            if now - last_tick_at >= step_dur:
-                last_tick_at += step_dur
+            tick_at = tick_anchor + tick_count * step_dur
+            if now >= tick_at:
+                tick_count += 1
 
+                # Dispatched with the time the tick was *due*, not this
+                # frame's `now` (which is late by however long the frame
+                # took): a synced take's loop_start is anchored to the
+                # TICK(0) that starts it, so it lands exactly on the
+                # sequencer's grid instead of a frame behind it.
                 tick_evt = (TICK, step)
-                seq.handle_event(tick_evt, now)
+                seq.handle_event(tick_evt, tick_at)
                 if looper.clock_needed:
-                    looper.handle_event(tick_evt, now)
+                    looper.handle_event(tick_evt, tick_at)
 
                 if step % 4 == 0:
                     beat_evt = (BEAT, beat_count)
@@ -391,8 +455,8 @@ def main():
         if looper.transport_playing:
             looper.update(now)
         seq.update(now)
-        if synth_edit_active:
-            synth_edit.update(now)
+        if menu_active:
+            menu.update(now)
 
         # ── Synth auto-release housekeeping ──────────────────────────────────
         synth.update()

@@ -31,7 +31,7 @@ _BTN_INFO = {
     config.BTN_TEMPO_UP:   ("TMP+", 11),
     config.BTN_TEMPO_DN:   ("TMP-", 12),
     config.BTN_MUTE:       ("MUTE", 13),
-    config.BTN_SYNTH_EDIT: ("SYNT", 14),
+    config.BTN_MENU:       ("MENU", 14),
 }
 
 

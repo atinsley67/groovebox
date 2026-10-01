@@ -124,6 +124,28 @@ class SequencerMode:
         self._muted_tracks = 0
         self._refresh_display()
 
+    # ── Grooves (called by code.py for the menu's SAVE / LOAD) ────────────────
+
+    def snapshot(self):
+        """Pattern and mutes as plain data: one step bitmask per track."""
+        grid = []
+        for track in self._grid:
+            mask = 0
+            for s, on in enumerate(track):
+                if on:
+                    mask |= 1 << s
+            grid.append(mask)
+        return {"grid": grid, "muted": self._muted_tracks}
+
+    def restore(self, data):
+        grid = data.get("grid", [])
+        for track in range(NUM_TRACKS):
+            mask = grid[track] if track < len(grid) else 0
+            for s in range(STEPS_PER_BAR):
+                self._grid[track][s] = bool(mask & (1 << s))
+        self._muted_tracks = data.get("muted", 0)
+        self._refresh_display()
+
     # ── Event handling ────────────────────────────────────────────────────────
 
     def handle_event(self, event, now):
