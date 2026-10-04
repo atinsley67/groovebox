@@ -7,7 +7,7 @@ exercise standalone.
 
 PARAM_SCHEMA covers the melodic voices (see
 synth_engine.SynthEngine._apply_voice_params). DRUM_PARAM_SCHEMA is a
-smaller, range-limited schema for the 8 drum-kit sounds -- the
+smaller, range-limited schema for the drum-kit sounds -- the
 sequencer's kit, or any loop layer assigned KIT (see
 SynthEngine._apply_drum_params). menu.py picks whichever schema applies
 and shows it as a list, in the order given here.
@@ -65,7 +65,7 @@ PARAM_SCHEMA = [
     {"key": "reset", "label": "RST ", "kind": "action"},
 ]
 
-# Reduced, range-limited schema for the 8 drum-kit sounds
+# Reduced, range-limited schema for the drum-kit sounds
 # (sound_presets.build_kit_instance()).
 # No WAVE swap and tighter attack/decay ceilings than PARAM_SCHEMA, so edits
 # reshape a sound rather than turning it into a sustained melodic voice.

@@ -72,7 +72,7 @@ class ChannelVolumeTest(unittest.TestCase):
         self.assertEqual(self.engine.channel_volume(KIT_LAYER), 100)
         self.engine.set_channel_volume(KIT_LAYER, -5)
         self.assertEqual(self.engine.channel_volume(KIT_LAYER), 0)
-        self.assertEqual(kit_amplitudes(self.engine, KIT_LAYER), [0.0] * 8)
+        self.assertEqual(kit_amplitudes(self.engine, KIT_LAYER), [0.0] * 16)
 
     def test_layers_are_independent(self):
         self.engine.set_channel_volume(2, 30)

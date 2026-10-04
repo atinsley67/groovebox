@@ -5,7 +5,9 @@ Runs once before the main loop starts. Pressing any pad/button skips it.
 
 import time
 
-MARQUEE_TEXT        = "GROOVEBOX"
+import config
+
+MARQUEE_TEXT       = "GROOVEBOX"
 LED_STEP_DELAY      = 0.035  # per-LED sweep speed
 MARQUEE_FRAME_DELAY = 0.12   # per-frame scroll speed
 
@@ -16,9 +18,9 @@ def _skip_requested(hw):
 
 def run(hw, disp):
     """Play the boot animation. Returns immediately if any button/pad is pressed."""
-    # ── LED sweep: chase up through all 16 LEDs, then flash, then clear ────────
+    # ── LED sweep: chase across every pad, then flash, then clear ─────────────
     # (disp.update() sends each change to the key pixels straight away.)
-    for i in range(16):
+    for i in range(config.NUM_PADS):
         disp.set_led(i, True)
         disp.update()
         time.sleep(LED_STEP_DELAY)

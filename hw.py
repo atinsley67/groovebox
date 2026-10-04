@@ -64,7 +64,8 @@ class Hardware:
         self._pads = _matrix(config.PAD_ROW_PINS, config.PAD_COL_PINS)
         self._func = _matrix(config.FUNC_ROW_PINS, config.FUNC_COL_PINS)
 
-        # Pads past NUM_PADS give no events until the modes handle them.
+        # Pads past NUM_PADS (if it's ever set below the grid's size) give
+        # no events.
         pad_of_key = [pad if pad < config.NUM_PADS else None
                       for pad in keymap.PAD_OF_KEY]
         # (event queue, key number -> payload, press type, release type)

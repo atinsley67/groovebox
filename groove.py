@@ -11,6 +11,10 @@ too.
 Pure file I/O: this module knows nothing about what's inside a groove.
 Writing needs boot.py's storage.remount(); without it every save fails
 with a read-only error, which error_label() turns into "RO  ".
+
+Versions ("v" in the file): 1 = the 8-pad layout, where a melodic layer's
+pad n was note n; 2 = the 16-pad grid, notes rising from the bottom left.
+load() hands back either -- code.py's apply_groove converts a v1.
 """
 
 import json
@@ -19,8 +23,9 @@ import os
 # The menu's slot labels ("S03*") have room for two digits, so at most 99.
 NUM_SLOTS = 16
 
+VERSION  = 2
+_READS   = (1, 2)   # versions load() accepts
 _DIR     = "/grooves"
-_VERSION = 1
 
 # OSError codes CircuitPython raises for these (its errno module doesn't
 # reliably define the names).
@@ -60,7 +65,7 @@ def save(slot, data):
     path = _path(slot)
     tmp  = path + ".tmp"
     record = dict(data)
-    record["v"] = _VERSION
+    record["v"] = VERSION
     try:
         with open(tmp, "w") as f:
             json.dump(record, f)
@@ -83,8 +88,8 @@ def load(slot):
     (corrupt, or not a groove file this code understands)."""
     with open(_path(slot)) as f:
         data = json.load(f)
-    if not isinstance(data, dict) or data.get("v") != _VERSION:
-        raise ValueError("not a v1 groove")
+    if not isinstance(data, dict) or data.get("v") not in _READS:
+        raise ValueError("not a groove version this code reads")
     return data
 
 

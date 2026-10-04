@@ -121,9 +121,14 @@ class HardwareTest(unittest.TestCase):
         self.assertAlmostEqual(event_time, 10.0 - 0.005 - config.KEY_TIME_ADJUST)
 
     def test_unused_keys_give_no_events(self):
-        self.push("pad", keymap.PAD_OF_KEY.index(config.NUM_PADS), True, ms_ago=0)
         self.push("func", keymap.BUTTON_OF_KEY.index(None), True, ms_ago=0)
         self.assertEqual(len(self.hw.scan()), 0)
+
+    def test_every_pad_gives_events(self):
+        for key in range(keymap.NUM_PAD_KEYS):
+            self.push("pad", key, True, ms_ago=0)
+        pads = sorted(payload for _, payload, _ in self.hw.scan())
+        self.assertEqual(pads, list(range(16)))
 
     def test_raw_events_are_unmapped(self):
         self.push("pad", 15, True, ms_ago=0)
@@ -212,10 +217,8 @@ class NeoKeyMainLoopTest(unittest.TestCase):
 
     def test_unused_keys_are_harmless(self):
         def scenario(h):
-            h.raw_key("pad", keymap.PAD_OF_KEY.index(12), True)
             h.raw_key("func", keymap.BUTTON_OF_KEY.index(None), True)
             yield 0.05
-            h.raw_key("pad", keymap.PAD_OF_KEY.index(12), False)
             yield from h.tap(BTN_VIEW)
             assert h.text == "L1  "
         run(scenario)
@@ -246,13 +249,13 @@ class NeoKeyMainLoopTest(unittest.TestCase):
     def test_pixel_sends_are_capped(self):
         def scenario(h):
             yield from h.hold(BTN_MODE, 0.7)              # SEQ: steps light every 1/16
-            for pad in range(8):
+            for pad in range(16):
                 yield from h.pad_tap(pad)
             yield from h.tap(BTN_PLAY_STOP)
             strip = h.disp.pixels._pads.pixels
             before = strip.shows
             for pad in range(40):                         # and drum on pads too
-                yield from h.pad_tap(pad % 8, hold=0.01, after=0.01)
+                yield from h.pad_tap(pad % 16, hold=0.01, after=0.01)
             yield 1.2
             sends = strip.shows - before
             assert sends <= 2.0 * 61, sends

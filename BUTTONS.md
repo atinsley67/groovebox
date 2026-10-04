@@ -2,7 +2,7 @@
 
 ## Layout
 
-The 8 musical pads are the top two rows of the 4x4 grid, numbered 1–8 here, row by row from the top left (pads 1–4 on the top row). The bottom two rows aren't used yet.
+All 16 keys of the 4x4 grid are pads, numbered 1–16 here, row by row from the top left (pads 1–4 on the top row, 13–16 on the bottom row). What each pad plays is under *LOOP mode* and *SEQ mode* below.
 
 The function keys, as the 2x5 block stands:
 
@@ -22,7 +22,7 @@ The layout can be changed in `config.py` (`FUNC_LAYOUT`); see `HARDWARE.md`.
 
 | Button | Short press | Long press | Hold + pad |
 |---|---|---|---|
-| MODE | Cycle active layer / track | Switch between LOOP and SEQ modes (0.6 s) | Jump to that layer / track (1–8) |
+| MODE | Cycle active layer / track | Switch between LOOP and SEQ modes (0.6 s) | Jump to that layer / track (pads 1–8) |
 | PLAY/STOP | Play / pause (see below for what it controls) | Clear the active mode (hold 2 s) | — |
 | UP / DOWN | Volume of the active layer (LOOP) or selected track (SEQ), 5% a step (hold to repeat) | — | — |
 | MENU | Open the menu | — | — |
@@ -153,7 +153,7 @@ A groove saves everything:
 - all sound edits
 - every layer and track volume
 
-It doesn't save a recording that's still in progress, or which layer, track or page was selected. Grooves saved before channel volumes existed load with every volume at 100%.
+It doesn't save a recording that's still in progress, or which layer or track was selected. Grooves saved before channel volumes existed load with every volume at 100%. Grooves saved before the 16-pad grid sound the same as before: their melodic notes move to the pads that play those notes now.
 
 There are 16 slots. Pick one with UP / DOWN. A `*` means the slot holds a groove:
 
@@ -195,6 +195,21 @@ RECORD lights red while recording, and PLAY/STOP green while the loop is audibly
 
 There are **8 layers**, all sharing one loop length. Use MODE to move between them; you can't change layer mid-recording.
 
+### What the pads play
+
+**A kit layer:** a different drum sound on each pad.
+
+| | | | |
+|---|---|---|---|
+| 1 `KICK` | 2 `DNBK` | 3 `CHH ` | 4 `OHH ` |
+| 5 `SNRE` | 6 `CLAP` | 7 `COWB` | 8 `WOOD` |
+| 9 `LTOM` | 10 `MTOM` | 11 `HTOM` | 12 `RIM ` |
+| 13 `SHKR` | 14 `CONG` | 15 `RIDE` | 16 `CRSH` |
+
+(House kick, DnB kick, closed and open hi-hat, snare, clap, cowbell, woodblock; low, mid and high tom, rimshot, shaker, conga, ride, crash.)
+
+**A melodic layer:** three octaves of a minor pentatonic scale, lowest at the bottom left. Notes rise along each row, left to right, then continue on the row above, so pad 13 is the root and pad 4 is the root three octaves up. The roots fall on a diagonal: pads 13, 10, 7 and 4. Every voice uses the same key, so any layers played together stay in tune.
+
 ### Recording
 
 | Situation | Press RECORD, then… |
@@ -229,18 +244,18 @@ RECORD does nothing on a muted layer.
 
 ## SEQ mode
 
-The display shows `T1P1`: the track and the step page.
+The display shows the selected track (`T1` … `T8`). Tracks 1–8 play the kit's first 8 sounds (`KICK` … `WOOD`, pads 1–8 of a kit layer).
 
 | Action | Result |
 |---|---|
-| Pads 1–8 | Toggle that step for the selected track, and preview its sound |
-| RECORD | Switch step page: P1 = steps 1–8, P2 = steps 9–16 |
+| Pads 1–16 | Toggle that step of the bar (pad 1 = step 1, read row by row) for the selected track, and preview its sound |
+| RECORD | Nothing |
 | PLAY/STOP | Start / stop the sequencer (hold 2 s: clear all tracks) |
-| MODE | Cycle the selected track (MODE + pad jumps to it) |
+| MODE | Cycle the selected track (MODE + pad 1–8 jumps to it) |
 | MUTE | Mute / unmute the selected track (hold 0.6 s: clear its steps) |
 | UP / DOWN | The selected track's volume |
 
-The pad lights show the selected track's steps on the current page, and the step being played is always lit.
+The pad lights show the selected track's steps for the whole bar, and the step being played is always lit.
 
 ---
 

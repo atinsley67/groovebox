@@ -7,7 +7,7 @@ Colors are buffered and pushed by update(): a strip is only sent when one
 of its pixels changed, at most every _PUSH_INTERVAL -- each send briefly
 blocks the main loop, and LED changes can come many times a frame.
 
-show_mask() is the compatibility layer behind DisplayManager's 16-LED
+show_mask() is the compatibility layer behind DisplayManager's LED
 bitmask, so the modes drive the pixels unchanged: LEDs 0..NUM_PADS-1 light
 pads in PLAYBACK blue, LED_RECORD the RECORD key, and LED_PLAY + LED_BEAT
 share the PLAY/STOP key (dim green while playing, full green on the beat).
@@ -73,7 +73,7 @@ class PixelLeds:
         """For io_test.py: color a pixel by its index on "pad" or "func"."""
         (self._pads if strip_name == "pad" else self._func).set(pixel, color)
 
-    # ── Compatibility with the 16-LED bitmask ─────────────────────────────────
+    # ── Compatibility with the LED bitmask ────────────────────────────────────
 
     def show_mask(self, mask):
         for pad in range(config.NUM_PADS):

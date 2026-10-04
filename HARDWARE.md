@@ -45,7 +45,7 @@ Running on battery or another supply would mean rethinking this.
 - `PAD_PIXELS` and `FUNC_PIXELS` hold pixel indices.
 - `FUNC_LAYOUT` says which button each function key is. It's free to rearrange without recalibrating.
 
-Pad n is the n-th key reading row by row from the top left, so the 8 musical pads are the top two rows. A mistyped table stops startup with an error naming it.
+Pad n is the n-th key reading row by row from the top left (pads 1–4 are the top row). Kit sounds and sequencer steps follow that order. Melodic notes are derived from it, lowest at the bottom left (`keymap.NOTE_OF_PAD`), so they follow a remounted grid automatically. A mistyped table stops startup with an error naming it.
 
 To recalibrate (after rewiring, or remounting a piece), uncomment the `io_test` line in `code.py`:
 1. **Pixel walk.** Each pixel lights white in turn while the display shows its number: `P  0` to `P 15` on the pad grid, then `F  0` to `F  9` on the function block. Note where each one lights → the `PIXELS` tables.

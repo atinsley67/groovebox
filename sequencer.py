@@ -2,25 +2,24 @@
 SequencerMode — 8-track × 16-step step sequencer.
 
 UI interaction:
-  - Pads 0-7   : toggle steps on the selected track for the current page.
-                 Toggling also previews the sound.
+  - Pads 0-15  : toggle steps 0-15 of the bar on the selected track (row
+                 by row from the top left). Toggling also previews the sound.
   - MODE button : short = advance selected track; long = switch to looper;
                   hold + pad = jump to that track. (All handled by code.py.)
-  - RECORD      : toggle step page (0 = steps 0-7, 1 = steps 8-15)
+  - RECORD      : nothing (free for a later use)
   - PLAY/STOP   : global transport, handled by code.py -- short press calls
                   set_playing(), long press calls clear_all().
   - MUTE short  : mute / unmute selected track
   - MUTE long   : clear all steps on selected track (also unmutes it)
   - UP/DOWN     : selected track's volume -- handled by code.py
 
-Display (4 chars): T<track+1>P<page+1>  e.g. "T1P1"
-LEDs 0-7         : step on/off for selected track on current page;
-                   currently-playing step is always lit.
+Display (4 chars): T<track+1>  e.g. "T1  "
+Pad LEDs         : step on/off for the selected track; the step being
+                   played is always lit.
 """
 
-import config
 from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, BTN_UP, TICK
-from config import BTN_RECORD, BTN_MUTE, STEPS_PER_BAR, NUM_TRACKS, DEFAULT_BPM
+from config import BTN_MUTE, STEPS_PER_BAR, NUM_TRACKS, DEFAULT_BPM
 
 _LONG_PRESS_CLEAR_TRACK = 0.6
 
@@ -34,7 +33,6 @@ class SequencerMode:
         self._grid = [[False] * STEPS_PER_BAR for _ in range(NUM_TRACKS)]
 
         self._selected_track = 0
-        self._page           = 0   # 0 = steps 0-7, 1 = steps 8-15
         self._playing        = False
         self._current_step   = 0
 
@@ -152,20 +150,20 @@ class SequencerMode:
         etype, data = event
 
         if etype == PAD_DOWN:
-            pad   = data
-            step  = pad + self._page * 8
+            step  = data   # pad n = step n
             track = self._selected_track
-            self._grid[track][step] = not self._grid[track][step]
+            if step < STEPS_PER_BAR:
+                self._grid[track][step] = not self._grid[track][step]
             self._synth.trigger(track)
 
         elif etype == PAD_UP:
-            if self._synth.is_melodic(data):
-                self._synth.note_off(data)
+            # The press previewed the track's sound, not the pad's.
+            track = self._selected_track
+            if self._synth.is_melodic(track):
+                self._synth.note_off(track)
 
         elif etype == BTN_DOWN:
-            if data == BTN_RECORD:
-                self._page = 1 - self._page
-            elif data == BTN_MUTE:
+            if data == BTN_MUTE:
                 self._mute_at = now
 
         elif etype == BTN_UP:
@@ -194,29 +192,18 @@ class SequencerMode:
                 self._synth.trigger(track)
 
     def _steps_bitmask(self):
-        track  = self._selected_track
-        offset = self._page * 8
-        mask   = 0
-        for i in range(8):
-            if self._grid[track][offset + i]:
-                mask |= (1 << i)
+        mask = 0
+        for step, on in enumerate(self._grid[self._selected_track]):
+            if on:
+                mask |= (1 << step)
         return mask
-
-    def _step_in_page(self):
-        if not self._playing:
-            return -1
-        offset = self._page * 8
-        if offset <= self._current_step < offset + 8:
-            return self._current_step - offset
-        return -1
 
     def _refresh_display(self):
         if not self._is_display_owner:
             return
         self._display.show_sequencer_state(
-            steps_bitmask8=self._steps_bitmask(),
-            current_step_in_page=self._step_in_page(),
+            steps_mask=self._steps_bitmask(),
+            playhead_step=self._current_step if self._playing else -1,
             is_playing=self._playing,
             selected_track=self._selected_track,
-            page=self._page,
         )

@@ -53,15 +53,15 @@ class SynthEngine:
         self._pending_releases = []
 
         # The sequencer's own kit (track n = sound n), independent of any
-        # loop layer's kit copy.
-        self._sequencer_kit = build_kit_instance()
+        # loop layer's kit copy: the kit's first NUM_TRACKS sounds.
+        self._sequencer_kit = build_kit_instance(config.NUM_TRACKS)
 
         # Channel volumes (0-100 %), one per sequencer track and one per
         # loop layer, scaling every sound in the channel on top of its own
         # AMP param. They belong to the track/layer slot, not to the
         # instrument instance in it, so a layer keeps its level across an
         # ASSIGN swap.
-        self._track_volumes = [_FULL_VOLUME] * len(self._sequencer_kit)
+        self._track_volumes = [_FULL_VOLUME] * config.NUM_TRACKS
         self._layer_volumes = [_FULL_VOLUME] * config.NUM_LOOP_LAYERS
 
         # One independent instrument instance per loop layer (see
@@ -107,7 +107,7 @@ class SynthEngine:
 
     def trigger_layer_pad(self, layer_idx, pad_index):
         """Press a pad in the context of a loop layer: kit channels play one
-        of their 8 sounds; melodic channels play a scale degree on the
+        of their 16 sounds; melodic channels play a scale degree on the
         channel's own voice (plus a detuned unison voice, if that voice's
         'detune' param is nonzero)."""
         channel = self._channels[layer_idx]
@@ -131,7 +131,7 @@ class SynthEngine:
         """Release a loop layer's note for this pad (PAD_UP, or a recorded
         note-off during playback).
 
-        Mono-voice guard: a melodic channel is one voice shared by all 8
+        Mono-voice guard: a melodic channel is one voice shared by all the
         pads, so a release that belongs to an earlier pad (e.g. legato
         playing, or independently-quantized starts on playback) must not
         cut off a newer note on a different pad -- it's ignored unless
@@ -236,7 +236,7 @@ class SynthEngine:
     # ── Grooves (called by code.py for the menu's SAVE / LOAD) ────────────────
 
     def snapshot_sounds(self):
-        """Every sound edit as plain data: the sequencer kit's 8 sounds, each
+        """Every sound edit as plain data: the sequencer kit's sounds, each
         loop layer's instrument id plus its params (one dict for a melodic
         voice, one per pad for a kit), and every track and layer volume."""
         layers = []

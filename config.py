@@ -66,8 +66,10 @@ PIXEL_BRIGHTNESS = 0.2
 # (it shows each key's number as you press it, and walks the pixels in
 # order; see HARDWARE.md).
 #
-# Pad n is the n-th position reading row by row from the top left, so the 8
-# musical pads (NUM_PADS) are the top two rows.
+# Pad n is the n-th position reading row by row from the top left (pads 0-3
+# are the top row). Kit sounds and sequencer steps follow that order;
+# melodic notes run the other way up, lowest at the bottom left (see
+# keymap.NOTE_OF_PAD).
 PAD_KEYS = [
     [0, 4,  8, 12],
     [1, 5,  9, 13],
@@ -112,7 +114,7 @@ TIMING_PROBE = False
 
 # ── Audio ─────────────────────────────────────────────────────────────────────
 SAMPLE_RATE = 22050
-NUM_PADS    = 8
+NUM_PADS    = 16
 
 # ── Sequencer ─────────────────────────────────────────────────────────────────
 DEFAULT_BPM   = 120
@@ -133,11 +135,11 @@ NUM_MODES      = 2  # game not yet implemented
 
 MODE_NAMES = ["LOOP", "SEQ "]
 
-# ── Status LED layout (the modes' 16-LED bitmask) ─────────────────────────────
-# LEDs 0-7:  primary status (step on/off, pad-in-loop indicators)
-# LEDs 8-15: secondary status (playback position, record/play state)
-# LEDs 0-7 are pads 0-7, LED_RECORD the RECORD key, LED_PLAY + LED_BEAT the
-# PLAY/STOP key (see pixels.py). Replaced by colors once the pad views exist.
-LED_RECORD   = 8   # lit while recording (not while armed / counting in)
-LED_PLAY     = 9   # lit while playing
-LED_BEAT     = 10  # pulses on each beat
+# ── Status LED layout (the modes' LED bitmask) ────────────────────────────────
+# Bits 0..NUM_PADS-1 are the pads (step on/off, pad sounding); the bits
+# below sit above them: LED_RECORD is the RECORD key, LED_PLAY + LED_BEAT
+# the PLAY/STOP key (see pixels.py). Replaced by colors once the pad views
+# exist.
+LED_RECORD   = 16  # lit while recording (not while armed / counting in)
+LED_PLAY     = 17  # lit while playing
+LED_BEAT     = 18  # pulses on each beat

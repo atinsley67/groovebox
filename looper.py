@@ -88,6 +88,7 @@ Snap-to-bar sync:
   played. (Later layers auto-commit at master_duration instead.)
 """
 
+import keymap
 from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, BTN_UP, TICK
 from config import (BTN_RECORD, BTN_MUTE,
                     MAX_LOOP_EVENTS, NUM_LOOP_LAYERS, NUM_PADS, STEPS_PER_BAR)
@@ -135,10 +136,13 @@ def _count_through(entries, pos):
     return n
 
 
-def _restore_entries(saved, duration):
+def _restore_entries(saved, duration, v1_notes=False):
     """Saved [pos, pad] pairs back to sorted (pos, pad) tuples, dropping
-    anything a playable loop couldn't hold (hand-edited files included)."""
-    entries = [(pos, pad) for pos, pad in saved
+    anything a playable loop couldn't hold (hand-edited files included).
+    v1_notes: a melodic layer from a v1 groove, where pad n played note n --
+    each moves to the pad that plays that note now."""
+    entries = [(pos, keymap.PAD_OF_NOTE[pad] if v1_notes else pad)
+               for pos, pad in saved
                if 0.0 <= pos < duration and 0 <= pad < NUM_PADS]
     entries.sort(key=lambda e: e[0])
     return entries[:MAX_LOOP_EVENTS]
@@ -868,12 +872,15 @@ class LooperMode:
             })
         return {"master": self._master_dur, "layers": layers}
 
-    def restore(self, data):
+    def restore(self, data, v1_notes=False):
         """Replace everything with a snapshot(). Expects the transport
         already stopped (code.py does that first), so the next PLAY starts
         every layer from the top via set_playing(). Unlike clear_all() this
         never flags was_cleared -- code.py sets the loaded groove's sync
-        mode itself, and that flag would reset it to "none" at frame end."""
+        mode itself, and that flag would reset it to "none" at frame end.
+        v1_notes: the snapshot is from a v1 groove (see groove.py), so the
+        notes on melodic layers move to today's layout -- which needs the
+        layers' instruments already restored."""
         self._rec_state           = _IDLE
         self._countdown_kind      = None
         self._countdown_number    = 0
@@ -899,8 +906,9 @@ class LooperMode:
                 layer.loop_duration = 0.0
                 layer.state         = _IDLE
                 continue
-            layer.events        = _restore_entries(entry.get("on", []), dur)
-            layer.releases      = _restore_entries(entry.get("off", []), dur)
+            remap = v1_notes and self._synth.layer_is_melodic(idx)
+            layer.events        = _restore_entries(entry.get("on", []), dur, remap)
+            layer.releases      = _restore_entries(entry.get("off", []), dur, remap)
             layer.loop_duration = dur
             layer.state         = _MUTED if entry.get("muted") else _PLAYING
 

@@ -1,12 +1,12 @@
 """
 DisplayManager wraps:
-  - the status LEDs, a 16-LED bitmask the modes set, shown on the keys'
+  - the status LEDs, a bitmask the modes set, shown on the keys'
     NeoPixels (pixels.py)
   - Adafruit Quad Alphanumeric Display (HT16K33 14-segment, 4 chars)
 
 LED layout:
-  LEDs  0-7  : primary row  (step on/off, pad-in-loop state)
-  LEDs  8-15 : status row   (record, play, beat pulse, sequencer position)
+  bits 0..NUM_PADS-1 : the pads (step on/off, pad sounding)
+  LED_RECORD, LED_PLAY, LED_BEAT (config) : the status keys, above the pads
 
 The focused mode always owns the LEDs. The 4-char text can be held by an
 overlay (the menu, or code.py's volume / LOCK flash) -- see hold_text().
@@ -20,12 +20,15 @@ from adafruit_ht16k33 import segments
 import config
 import pixels
 
+_PAD_BITS  = (1 << config.NUM_PADS) - 1
+_MODE_BITS = _PAD_BITS | (1 << config.LED_RECORD) | (1 << config.LED_PLAY)   # what the modes' state readouts set
+
 
 class DisplayManager:
     def __init__(self, i2c):
         self._leds = pixels.PixelLeds()
-        self._led_state = 0x0000     # bitmask, bit N = LED N, desired state
-        self._led_shown = 0x0000     # bitmask last handed to the LEDs (all off at start)
+        self._led_state = 0          # bitmask, bit N = LED N, desired state
+        self._led_shown = 0          # bitmask last handed to the LEDs (all off at start)
 
         # auto_write off: with it on, print() already sends the text and the
         # explicit show() sent it a second time. _write_text() is the one
@@ -47,18 +50,23 @@ class DisplayManager:
             self._led_state &= ~(1 << index)
         self._flush_leds()
 
-    def set_leds_lower(self, bitmask8):
-        """Set LEDs 0-7 from the low 8 bits of bitmask8."""
-        self._led_state = (self._led_state & 0xFF00) | (bitmask8 & 0x00FF)
+    def _set_leds(self, bits, values):
+        """Set the LEDs in mask `bits` from `values`, leaving the rest."""
+        self._led_state = (self._led_state & ~bits) | (values & bits)
         self._flush_leds()
 
-    def set_leds_upper(self, bitmask8):
-        """Set LEDs 8-15 from the low 8 bits of bitmask8."""
-        self._led_state = (self._led_state & 0x00FF) | ((bitmask8 & 0xFF) << 8)
-        self._flush_leds()
+    def _show_mode_leds(self, pad_mask, recording, playing):
+        """The pads, RECORD and PLAY in one go (not the beat pulse, which
+        code.py drives)."""
+        status = 0
+        if recording:
+            status |= 1 << config.LED_RECORD
+        if playing:
+            status |= 1 << config.LED_PLAY
+        self._set_leds(_MODE_BITS, (pad_mask & _PAD_BITS) | status)
 
     def clear_leds(self):
-        self._led_state = 0x0000
+        self._led_state = 0
         self._flush_leds()
 
     def _flush_leds(self):
@@ -104,29 +112,21 @@ class DisplayManager:
 
     # ── Composite helpers used by modes ──────────────────────────────────────
 
-    def show_sequencer_state(self, steps_bitmask8, current_step_in_page,
-                             is_playing, selected_track, page):
+    def show_sequencer_state(self, steps_mask, playhead_step, is_playing,
+                             selected_track):
         """
-        steps_bitmask8 : which of the 8 displayed steps are on
-        current_step_in_page : 0-7, which step the playhead is on (or -1)
+        steps_mask    : which steps of the bar are on (bit n = step n = pad n)
+        playhead_step : the step being played, or -1
         """
-        # Lower LEDs: step on/off, with playhead blink handled by caller
-        display_mask = steps_bitmask8
-        if is_playing and current_step_in_page >= 0:
-            # Playhead LED overrides: always lit regardless of step value
-            display_mask |= (1 << current_step_in_page)
-        self.set_leds_lower(display_mask)
-
-        # Upper LEDs: record/play status
-        upper = 0
-        if is_playing:
-            upper |= (1 << (config.LED_PLAY - 8))
-        self.set_leds_upper(upper)
+        pad_mask = steps_mask
+        if is_playing and playhead_step >= 0:
+            # The playhead is always lit, whatever the step's value
+            pad_mask |= (1 << playhead_step)
+        self._show_mode_leds(pad_mask, False, is_playing)
 
         if self._text_held:
             return
-        # Display: track number and page
-        self._write_text(f"T{selected_track + 1}P{page + 1}")
+        self._write_text(f"{'T' + str(selected_track + 1):<4}")
 
     def show_looper_state(self, active_pads_mask, state_name, bar_count,
                           layer_num=None, synced=False, transport_playing=True):
@@ -134,14 +134,10 @@ class DisplayManager:
         transport_playing: whether the global transport is actually running --
         a layer can be in PLAYING/OVERDUB content-state while paused, and the
         LED should reflect audible reality, not just that content exists."""
-        self.set_leds_lower(active_pads_mask)
-
-        upper = 0
-        if "REC" in state_name:
-            upper |= (1 << (config.LED_RECORD - 8))
-        if transport_playing and ("PLY" in state_name or "DUB" in state_name):
-            upper |= (1 << (config.LED_PLAY - 8))
-        self.set_leds_upper(upper)
+        self._show_mode_leds(
+            active_pads_mask,
+            "REC" in state_name,
+            transport_playing and ("PLY" in state_name or "DUB" in state_name))
 
         if self._text_held:
             return

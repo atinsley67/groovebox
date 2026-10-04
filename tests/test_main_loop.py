@@ -98,7 +98,7 @@ class PadsUnderMenuTest(unittest.TestCase):
             assert h.led(3)
             assert h.text == "SND "
             yield from h.tap(BTN_PLAY_STOP)
-            assert h.text == "T1P1"
+            assert h.text == "T1  "
         run(scenario)
 
     def test_mode_pad_still_selects_channel(self):
@@ -274,7 +274,7 @@ class ChannelVolumeTest(unittest.TestCase):
             assert h.synth.channel_volume(1) == 100
             assert h.text == "V 95"
             yield 1.1
-            assert h.text == "T2P1"
+            assert h.text == "T2  "
         run(scenario)
 
     def test_menu_takes_over_from_volume_repeat(self):

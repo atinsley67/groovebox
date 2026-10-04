@@ -21,16 +21,31 @@ class DisplayTextTest(unittest.TestCase):
         self.assertEqual(self.seg.writes, writes + 1)   # unchanged: not sent
 
     def test_mode_redraws_skip_unchanged_text(self):
-        state = dict(steps_bitmask8=0, current_step_in_page=-1, is_playing=True,
-                     selected_track=0, page=0)
+        state = dict(steps_mask=0, playhead_step=-1, is_playing=True,
+                     selected_track=0)
         self.disp.show_sequencer_state(**state)
         writes = self.seg.writes
-        for step in range(8):   # playhead moving: LEDs change, text doesn't
-            self.disp.show_sequencer_state(**dict(state, current_step_in_page=step))
+        for step in range(16):  # playhead moving: LEDs change, text doesn't
+            self.disp.show_sequencer_state(**dict(state, playhead_step=step))
         self.assertEqual(self.seg.writes, writes)
         self.disp.show_sequencer_state(**dict(state, selected_track=1))
-        self.assertEqual(self.seg.text, "T2P1")
+        self.assertEqual(self.seg.text, "T2  ")
         self.assertEqual(self.seg.writes, writes + 1)
+
+    def test_pad_bits_and_status_bits_are_separate(self):
+        import config
+        self.disp.set_led(config.LED_BEAT, True)
+        self.disp.show_sequencer_state(steps_mask=0xFF00, playhead_step=-1,
+                                       is_playing=False, selected_track=0)
+        state = self.disp._led_state
+        self.assertEqual(state & 0xFFFF, 0xFF00)         # pads 8-15
+        self.assertFalse(state & (1 << config.LED_RECORD))
+        self.assertFalse(state & (1 << config.LED_PLAY))
+        self.assertTrue(state & (1 << config.LED_BEAT))  # left alone
+        self.disp.show_looper_state(1 << 15, "REC ", 0)
+        state = self.disp._led_state
+        self.assertEqual(state & 0xFFFF, 1 << 15)
+        self.assertTrue(state & (1 << config.LED_RECORD))
 
     def test_held_text_only_updates_leds(self):
         self.disp.hold_text(True)

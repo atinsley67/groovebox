@@ -189,7 +189,9 @@ def main():
         looper.set_playing(False, now)
         synth.restore_sounds(data.get("sounds", {}))
         seq.restore(data.get("seq", {}))
-        looper.restore(data.get("loop", {}))
+        # After restore_sounds: converting a v1 groove's notes needs to
+        # know which layers are melodic.
+        looper.restore(data.get("loop", {}), v1_notes=data.get("v") == 1)
         set_bpm(int(data.get("bpm", DEFAULT_BPM)))
         # A synced loop was recorded against this exact BPM; restoring
         # "snap" re-locks the BPM so the two can't drift apart.

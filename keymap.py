@@ -5,11 +5,13 @@ mistyped table stops at startup with a message naming it instead of
 quietly misrouting keys.
 
 Positions are read row by row from the top left of each piece as it's
-mounted; a pad's index is its position (so pads 0-7 are the top two rows).
+mounted; a pad's index is its position (so pads 0-3 are the top row).
 
   PAD_OF_KEY[key]            pad index of a pad-matrix key number
   PAD_PIXEL[pad]             NeoPixel index under a pad
   PAD_PIXEL_OF_KEY[key]      NeoPixel index under a pad-matrix key
+  NOTE_OF_PAD[pad]           melodic note (scale degree) a pad plays
+  PAD_OF_NOTE[note]          ...and the pad that plays a note
   BUTTON_OF_KEY[key]         button id of a function-matrix key (None = unassigned)
   FUNC_PIXEL_OF_KEY[key]     NeoPixel index under a function-matrix key
   FUNC_PIXEL_OF_BUTTON[id]   NeoPixel index under a button's key
@@ -53,6 +55,14 @@ _check_numbering("PAD_PIXELS", PAD_PIXEL)
 
 PAD_OF_KEY       = _invert(_pad_keys)
 PAD_PIXEL_OF_KEY = [PAD_PIXEL[PAD_OF_KEY[key]] for key in range(NUM_PAD_KEYS)]
+
+# Melodic notes rise like a grid controller's: the lowest at the bottom
+# left, up along each row, then on to the row above.
+_pad_rows = len(config.PAD_KEYS)
+_pad_cols = NUM_PAD_KEYS // _pad_rows
+NOTE_OF_PAD = [(_pad_rows - 1 - pad // _pad_cols) * _pad_cols + pad % _pad_cols
+               for pad in range(NUM_PAD_KEYS)]
+PAD_OF_NOTE = _invert(NOTE_OF_PAD)
 
 # ── Function block ────────────────────────────────────────────────────────────
 
