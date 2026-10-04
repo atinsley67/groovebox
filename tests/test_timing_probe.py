@@ -87,6 +87,89 @@ class TimingProbeTest(unittest.TestCase):
         self.assertIn("passes 0 ", probe.report_line())
 
 
+class AllocAndLedTimingTest(unittest.TestCase):
+    def test_alloc_per_pass_predicts_collections(self):
+        ns   = FakeNs()
+        free = [300 * 1024]
+        probe = TimingProbe(FakeHw(ns, 0), ns=ns, report_every=1.0,
+                            collect=lambda: None, mem_free=lambda: free[0])
+        with contextlib.redirect_stdout(io.StringIO()):
+            for _ in range(2000):                  # 1 ms passes, 500 B each
+                probe.scan()
+                ns.t += 1 * MS
+                free[0] -= 500
+                if ns.t == 1000 * MS:
+                    free[0] = 300 * 1024           # the report's collection
+        line = probe.report_line()
+        self.assertIn("alloc 500B/pass", line)
+        # ~1000 passes x 500 B over 300 KB free: about 2 collections.
+        self.assertIn("~2gc", line)
+
+    def test_slow_passes_split_into_gc_and_other(self):
+        ns   = FakeNs()
+        free = [200 * 1024]
+        probe = TimingProbe(FakeHw(ns, 0), ns=ns, report_every=10.0,
+                            collect=lambda: None, mem_free=lambda: free[0])
+        for i in range(300):
+            probe.scan()
+            free[0] -= 100
+            if i % 100 == 10:
+                ns.t += 6 * MS              # a stall with no collection
+            elif i % 100 == 60:
+                ns.t += 6 * MS              # a collection
+                free[0] = 200 * 1024
+            ns.t += 1 * MS
+        probe.scan()
+        # 3 stalls and 3 collections, and only the collections free memory.
+        self.assertIn(">5ms 6 (gc 3)", probe.report_line())
+
+    def test_alloc_unknown_after_a_collection(self):
+        ns   = FakeNs()
+        free = [300 * 1024]
+        probe = TimingProbe(FakeHw(ns, 0), ns=ns, report_every=1.0,
+                            collect=lambda: None, mem_free=lambda: free[0])
+        with contextlib.redirect_stdout(io.StringIO()):
+            for i in range(1100):
+                probe.scan()
+                ns.t += 1 * MS
+                free[0] += 10                      # memory going *up*: collected
+        self.assertIn("alloc ?", probe.report_line())
+
+    def test_led_work_timed_only_when_there_is_some(self):
+        ns = FakeNs()
+
+        class Strip:
+            dirty = False
+
+        class Pixels:
+            _pads, _func = Strip(), Strip()
+
+        class Disp:
+            pixels      = Pixels()
+            _led_state  = 0
+            _led_shown  = 0
+
+            def _flush_leds(self):
+                ns.t += 2 * MS
+                self._led_shown = self._led_state
+
+            def update(self, now=None):
+                ns.t += 3 * MS
+                self.pixels._pads.dirty = False
+
+        disp  = Disp()
+        probe = TimingProbe(FakeHw(ns, 0), disp, ns=ns, mem_free=None)
+        disp._flush_leds()          # nothing changed: not timed
+        disp.update()               # nothing to send: not timed
+        disp._led_state = 5
+        disp._flush_leds()
+        disp.pixels._pads.dirty = True
+        disp.update()
+        line = probe.report_line()
+        self.assertIn("leds map 1x 2.00ms", line)
+        self.assertIn("send 1x 3.00ms", line)
+
+
 class MainLoopWithProbeTest(unittest.TestCase):
     def test_main_loop_runs_with_probe_on(self):
         saved = config.TIMING_PROBE
@@ -95,7 +178,13 @@ class MainLoopWithProbeTest(unittest.TestCase):
             def scenario(h):
                 yield from h.tap(BTN_MENU)
                 assert h.text == "SND "
+                h.pad_down(2)
+                yield 0.05
+                assert h.led(2)            # LED work still happens through the timers
+                h.pad_up(2)
+                yield 0.05
             harness.run(scenario)
+            harness.run(scenario, neokey=True)
         finally:
             config.TIMING_PROBE = saved
 

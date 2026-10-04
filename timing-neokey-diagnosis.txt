@@ -1,0 +1,44 @@
+# Timing diagnosis, NeoKey (Phase 2), 2026-10-03. Short runs, idle then busy
+# playback; the 85-90 ms passes are LOADs.
+#
+# Findings (also in the plan's Phase 2 "As built"):
+# - ~100-130 passes >5ms per 5 s at idle and busy alike (the breadboard had
+#   ~34). About half have a garbage collection in them ("(gc N)"): ~12
+#   collections/s of ~5.3 ms, far more than the measured allocation rate
+#   predicts (~8 per 5 s idle) -- something other than plain allocation
+#   volume triggers them (large allocations failing to find a gap in a
+#   fragmented heap? bursts the 100-pass alloc sample misses?). Not traced.
+# - The other ~10/s are background (firmware) work: not the LEDs (~1% of
+#   the time) and not keypad's scan rate -- doubling it (run 2,
+#   KEY_SCAN_INTERVAL 0.002) changed nothing.
+# - Judged not a major concern: stalls are ~5-6 ms, worst passes mostly
+#   <15 ms, and recorded timing is unaffected (keypad timestamps presses in
+#   the background). Effect: occasional few-ms-late live/playback notes.
+
+# Run 1: KEY_SCAN_INTERVAL 0.004
+TIMING passes 9757 avg 0.48ms worst 51.48ms >5ms 104 (gc 63) >10ms 2 | scan avg 0.14ms worst 5.77ms | session worst 51.48ms | gc 5.13ms free 296k | alloc 245B/pass ~8gc | leds map 0x 0.00ms worst 0.00ms send 0x 0.00ms worst 0.00ms
+TIMING passes 9056 avg 0.52ms worst 84.99ms >5ms 102 (gc 50) >10ms 1 | scan avg 0.15ms worst 5.65ms | session worst 84.99ms | gc 5.22ms free 294k | alloc 245B/pass ~7gc | leds map 5x 0.53ms worst 0.55ms send 3x 1.53ms worst 2.87ms
+TIMING passes 3531 avg 1.27ms worst 13.67ms >5ms 131 (gc 60) >10ms 2 | scan avg 0.21ms worst 6.01ms | session worst 84.99ms | gc 5.65ms free 294k | alloc 80B/pass ~1gc | leds map 50x 0.56ms worst 1.04ms send 41x 1.23ms worst 3.14ms
+TIMING passes 3581 avg 1.26ms worst 11.44ms >5ms 128 (gc 52) >10ms 2 | scan avg 0.21ms worst 6.07ms | session worst 84.99ms | gc 5.25ms free 294k | alloc 129B/pass ~2gc | leds map 40x 0.56ms worst 1.43ms send 35x 0.93ms worst 3.36ms
+TIMING passes 3418 avg 1.32ms worst 8.91ms >5ms 123 (gc 58) >10ms 0 | scan avg 0.21ms worst 6.01ms | session worst 84.99ms | gc 5.25ms free 294k | alloc 28B/pass ~0gc | leds map 33x 0.55ms worst 0.70ms send 33x 0.83ms worst 1.56ms
+TIMING passes 3496 avg 1.29ms worst 25.33ms >5ms 124 (gc 67) >10ms 3 | scan avg 0.20ms worst 5.98ms | session worst 84.99ms | gc 5.89ms free 294k | alloc 26B/pass ~0gc | leds map 46x 0.57ms worst 1.46ms send 34x 1.10ms worst 2.78ms
+TIMING passes 3457 avg 1.31ms worst 14.65ms >5ms 126 (gc 75) >10ms 1 | scan avg 0.21ms worst 6.38ms | session worst 84.99ms | gc 5.92ms free 294k | alloc 124B/pass ~1gc | leds map 31x 0.54ms worst 0.64ms send 28x 1.10ms worst 3.11ms
+TIMING passes 3503 avg 1.29ms worst 7.84ms >5ms 122 (gc 68) >10ms 0 | scan avg 0.20ms worst 6.59ms | session worst 84.99ms | gc 5.25ms free 294k | alloc 18B/pass ~0gc | leds map 20x 0.57ms worst 1.04ms send 20x 0.81ms worst 1.68ms
+TIMING passes 3046 avg 1.48ms worst 14.74ms >5ms 117 (gc 68) >10ms 2 | scan avg 0.22ms worst 6.44ms | session worst 84.99ms | gc 5.55ms free 294k | alloc 115B/pass ~1gc | leds map 32x 0.63ms worst 1.65ms send 29x 1.05ms worst 3.69ms
+TIMING passes 2992 avg 1.50ms worst 10.96ms >5ms 119 (gc 73) >10ms 4 | scan avg 0.22ms worst 6.32ms | session worst 84.99ms | gc 5.80ms free 294k | alloc 143B/pass ~1gc | leds map 30x 0.62ms worst 1.68ms send 27x 1.07ms worst 3.11ms
+TIMING passes 3088 avg 1.47ms worst 8.61ms >5ms 113 (gc 68) >10ms 0 | scan avg 0.21ms worst 6.41ms | session worst 84.99ms | gc 5.25ms free 294k | alloc 148B/pass ~2gc | leds map 22x 0.53ms worst 0.64ms send 22x 0.75ms worst 0.98ms
+TIMING passes 3039 avg 1.49ms worst 8.70ms >5ms 116 (gc 70) >10ms 0 | scan avg 0.21ms worst 6.13ms | session worst 84.99ms | gc 5.25ms free 294k | alloc 146B/pass ~1gc | leds map 30x 0.59ms worst 1.65ms send 27x 1.08ms worst 3.11ms
+TIMING passes 3404 avg 1.32ms worst 9.46ms >5ms 126 (gc 71) >10ms 0 | scan avg 0.20ms worst 5.98ms | session worst 84.99ms | gc 6.07ms free 294k | alloc 44B/pass ~1gc | leds map 31x 0.63ms worst 1.62ms send 28x 1.04ms worst 3.33ms
+
+# Run 2: KEY_SCAN_INTERVAL 0.002 (twice the scan rate)
+TIMING passes 9949 avg 0.47ms worst 7.60ms >5ms 102 (gc 63) >10ms 0 | scan avg 0.13ms worst 5.80ms | session worst 7.60ms | gc 5.22ms free 296k | leds map 0x 0.00ms worst 0.00ms send 0x 0.00ms worst 0.00ms
+TIMING passes 8725 avg 0.54ms worst 90.27ms >5ms 100 (gc 30) >10ms 1 | scan avg 0.15ms worst 5.83ms | session worst 90.27ms | gc 5.28ms free 294k | alloc 242B/pass ~7gc | leds map 6x 0.60ms worst 0.76ms send 4x 1.39ms worst 2.72ms
+TIMING passes 3398 avg 1.32ms worst 13.52ms >5ms 133 (gc 64) >10ms 3 | scan avg 0.21ms worst 5.89ms | session worst 90.27ms | gc 5.40ms free 294k | alloc 2B/pass ~0gc | leds map 53x 0.59ms worst 1.46ms send 46x 1.17ms worst 3.72ms
+TIMING passes 3547 avg 1.27ms worst 14.86ms >5ms 125 (gc 53) >10ms 1 | scan avg 0.20ms worst 6.41ms | session worst 90.27ms | gc 5.68ms free 294k | alloc 121B/pass ~1gc | leds map 40x 0.62ms worst 1.95ms send 35x 1.08ms worst 3.20ms
+TIMING passes 3432 avg 1.30ms worst 10.47ms >5ms 131 (gc 59) >10ms 2 | scan avg 0.20ms worst 5.89ms | session worst 90.27ms | gc 5.55ms free 294k | alloc 146B/pass ~2gc | leds map 51x 0.57ms worst 1.40ms send 44x 1.06ms worst 3.36ms
+TIMING passes 3518 avg 1.29ms worst 9.52ms >5ms 122 (gc 53) >10ms 0 | scan avg 0.20ms worst 6.16ms | session worst 90.27ms | gc 5.31ms free 294k | alloc 215B/pass ~3gc | leds map 22x 0.57ms worst 0.89ms send 22x 0.82ms worst 1.50ms
+TIMING passes 3336 avg 1.35ms worst 11.90ms >5ms 125 (gc 59) >10ms 3 | scan avg 0.22ms worst 6.23ms | session worst 90.27ms | gc 5.25ms free 294k | alloc 122B/pass ~1gc | leds map 41x 0.60ms worst 1.22ms send 38x 0.94ms worst 2.69ms
+TIMING passes 3226 avg 1.38ms worst 10.65ms >5ms 128 (gc 61) >10ms 2 | scan avg 0.22ms worst 6.56ms | session worst 90.27ms | gc 6.04ms free 293k | alloc 55B/pass ~1gc | leds map 74x 0.63ms worst 1.62ms send 61x 1.14ms worst 3.05ms
+TIMING passes 3154 avg 1.41ms worst 12.60ms >5ms 125 (gc 67) >10ms 2 | scan avg 0.22ms worst 6.16ms | session worst 90.27ms | gc 6.35ms free 293k | alloc 138B/pass ~1gc | leds map 56x 0.59ms worst 1.71ms send 48x 1.24ms worst 3.88ms
+TIMING passes 3493 avg 1.28ms worst 13.79ms >5ms 131 (gc 74) >10ms 1 | scan avg 0.21ms worst 6.29ms | session worst 90.27ms | gc 5.34ms free 293k | alloc 101B/pass ~1gc | leds map 56x 0.59ms worst 1.77ms send 46x 1.32ms worst 3.81ms
+TIMING passes 8919 avg 0.52ms worst 6.84ms >5ms 125 (gc 46) >10ms 0 | scan avg 0.14ms worst 5.83ms | session worst 90.27ms | gc 5.43ms free 293k | alloc 183B/pass ~5gc | leds map 0x 0.00ms worst 0.00ms send 0x 0.00ms worst 0.00ms

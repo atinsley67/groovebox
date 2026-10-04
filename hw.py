@@ -1,3 +1,14 @@
+"""
+Button input: Hardware() returns the backend config.HARDWARE names. Both
+have the same interface -- `i2c` (the shared bus), scan() -> list of
+(event_type, payload, event_time) events since the last call, deinit().
+
+  "breadboard": BreadboardHardware below -- the loose buttons, polled and
+                debounced in Python every scan().
+  "neokey":     hw_neokey.NeoKeyHardware -- the key matrices, scanned in the
+                background by keypad.
+"""
+
 import busio
 import digitalio
 import board
@@ -8,6 +19,13 @@ from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, BTN_UP
 
 # Debounce window in seconds
 _DEBOUNCE = 0.020
+
+
+def Hardware():
+    if config.HARDWARE == "neokey":
+        import hw_neokey   # keypad only needed (and only imported) for this one
+        return hw_neokey.NeoKeyHardware()
+    return BreadboardHardware()
 
 _FUNC_BUTTONS = [
     (config.BTN_MODE_PIN,      config.BTN_MODE),
@@ -20,7 +38,7 @@ _FUNC_BUTTONS = [
 ]
 
 
-class Hardware:
+class BreadboardHardware:
     def __init__(self):
         self.i2c = busio.I2C(config.I2C_SCL, config.I2C_SDA,
                              frequency=config.I2C_FREQUENCY)

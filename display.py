@@ -1,31 +1,58 @@
 """
 DisplayManager wraps:
-  - Adafruit AW9523 (16-channel GPIO/LED driver) — LEDs 0-15
+  - the status LEDs, a 16-LED bitmask the modes set -- on the breadboard the
+    Adafruit AW9523 (16-channel GPIO/LED driver), on the NeoKey the per-key
+    NeoPixels (pixels.py), chosen by config.HARDWARE
   - Adafruit Quad Alphanumeric Display (HT16K33 14-segment, 4 chars)
 
-AW9523 LED layout:
+LED layout:
   LEDs  0-7  : primary row  (step on/off, pad-in-loop state)
   LEDs  8-15 : status row   (record, play, beat pulse, sequencer position)
 
 The focused mode always owns the LEDs. The 4-char text can be held by an
 overlay (the menu, or code.py's volume / LOCK flash) -- see hold_text().
+
+Call update(now) once per main-loop pass: the NeoPixels are sent from
+there, rate-limited (the AW9523 is written immediately, so it's a no-op).
 """
 
-import adafruit_aw9523
 from adafruit_ht16k33 import segments
 
 import config
 
 
-class DisplayManager:
+class _AW9523Leds:
     def __init__(self, i2c):
+        import adafruit_aw9523   # breadboard only: the NeoKey build doesn't need the library
         self._aw = adafruit_aw9523.AW9523(i2c, address=config.LED_DRIVER_ADDR)
         # All 16 pins in constant-current LED mode (driven via set_constant_current,
         # not the GPIO output register)
         self._aw.LED_modes = 0xFFFF
         self._aw.directions = 0xFFFF
+
+    def show_mask(self, mask, previous):
+        """AW9523 has no bulk register for constant-current mode (the `outputs`
+        register only drives pins in plain GPIO mode), so each LED has to be
+        pushed individually via set_constant_current. Only push the ones whose
+        on/off state actually changed."""
+        changed = mask ^ previous
+        for i in range(16):
+            if changed & (1 << i):
+                self._aw.set_constant_current(i, 100 if mask & (1 << i) else 0)
+
+    def update(self, now=None):
+        pass
+
+
+class DisplayManager:
+    def __init__(self, i2c):
+        if config.HARDWARE == "neokey":
+            import pixels
+            self._leds = pixels.PixelLeds()
+        else:
+            self._leds = _AW9523Leds(i2c)
         self._led_state = 0x0000     # bitmask, bit N = LED N, desired state
-        self._led_hw_state = 0x0000  # bitmask reflecting what's currently on the wire
+        self._led_shown = 0x0000     # bitmask last handed to the LEDs (all off at power-up)
 
         # auto_write off: with it on, print() already sends the text and the
         # explicit show() sent it a second time. _write_text() is the one
@@ -62,17 +89,20 @@ class DisplayManager:
         self._flush_leds()
 
     def _flush_leds(self):
-        """AW9523 has no bulk register for constant-current mode (the `outputs`
-        register only drives pins in plain GPIO mode), so each LED has to be
-        pushed individually via set_constant_current. Only push the ones whose
-        on/off state actually changed since the last flush."""
-        changed = self._led_state ^ self._led_hw_state
-        if not changed:
+        if self._led_state == self._led_shown:
             return
-        for i in range(16):
-            if changed & (1 << i):
-                self._aw.set_constant_current(i, 100 if self._led_state & (1 << i) else 0)
-        self._led_hw_state = self._led_state
+        self._leds.show_mask(self._led_state, self._led_shown)
+        self._led_shown = self._led_state
+
+    def update(self, now=None):
+        """Send pending LED changes. Pass the main loop's `now` (sends are
+        then rate-limited); without it they go out right away."""
+        self._leds.update(now)
+
+    @property
+    def pixels(self):
+        """The NeoKey's pixels.PixelLeds (for io_test.py), or None."""
+        return self._leds if config.HARDWARE == "neokey" else None
 
     # ── Alphanumeric display helpers ──────────────────────────────────────────
 

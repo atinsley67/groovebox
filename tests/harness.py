@@ -17,6 +17,11 @@ Time is fake (tests/fakes.py): every main-loop pass is one FRAME of it, so
 runs are deterministic and much faster than real time. The instances
 code.py builds (synth, looper, seq, menu, disp) are captured for
 inspection.
+
+Harness(neokey=True) runs with config.HARDWARE = "neokey" instead: presses
+go into the fake keypad matrices (through config's layout tables) and the
+real hw_neokey.NeoKeyHardware turns them into events, and the LEDs are the
+NeoPixel strips (see pad_color / key_color).
 """
 
 import importlib.util
@@ -30,6 +35,8 @@ import fakes
 import config
 import display
 import groove
+import hw_neokey
+import keymap
 import looper
 import menu
 import sequencer
@@ -46,12 +53,14 @@ class _StopHarness(BaseException):
 
 
 class Harness:
-    def __init__(self):
+    def __init__(self, neokey=False):
+        self.neokey = neokey
         self.synth  = None
         self.looper = None
         self.seq    = None
         self.menu   = None
         self.disp   = None
+        self.hw     = None   # the real NeoKeyHardware, in neokey mode
         self.i2c    = object()
         self._queue    = []
         self._scenario = None
@@ -66,16 +75,34 @@ class Harness:
         return fakes.CLOCK.t
 
     def down(self, button):
-        self._queue.append((BTN_DOWN, button, self.t))
+        if self.neokey:
+            self.raw_key("func", keymap.BUTTON_OF_KEY.index(button), True)
+        else:
+            self._queue.append((BTN_DOWN, button, self.t))
 
     def up(self, button):
-        self._queue.append((BTN_UP, button, self.t))
+        if self.neokey:
+            self.raw_key("func", keymap.BUTTON_OF_KEY.index(button), False)
+        else:
+            self._queue.append((BTN_UP, button, self.t))
 
     def pad_down(self, pad):
-        self._queue.append((PAD_DOWN, pad, self.t))
+        if self.neokey:
+            self.raw_key("pad", keymap.PAD_OF_KEY.index(pad), True)
+        else:
+            self._queue.append((PAD_DOWN, pad, self.t))
 
     def pad_up(self, pad):
-        self._queue.append((PAD_UP, pad, self.t))
+        if self.neokey:
+            self.raw_key("pad", keymap.PAD_OF_KEY.index(pad), False)
+        else:
+            self._queue.append((PAD_UP, pad, self.t))
+
+    def raw_key(self, strip, key, pressed):
+        """neokey mode: a transition of matrix key `key` on "pad" or "func",
+        stamped now -- as keypad's background scan would queue it."""
+        matrix = self.hw._pads if strip == "pad" else self.hw._func
+        matrix.events.push(fakes.Event(key, pressed))
 
     def tap(self, button, hold=0.03, after=0.03):
         self.down(button)
@@ -113,11 +140,20 @@ class Harness:
     def led(self, index):
         return bool(self.disp._led_state & (1 << index))
 
+    def pad_color(self, pad):
+        """neokey mode: the color the pixel under pad `pad` shows."""
+        strip = self.disp.pixels._pads.pixels
+        return strip.shown[keymap.PAD_PIXEL[pad]]
+
+    def key_color(self, button):
+        """neokey mode: the color the pixel under a function key shows."""
+        strip = self.disp.pixels._func.pixels
+        return strip.shown[keymap.FUNC_PIXEL_OF_BUTTON[button]]
+
     # ── Running ───────────────────────────────────────────────────────────────
 
-    def scan(self):
-        """hw.scan(): resume the scenario when its wait is up, hand back what
-        it queued, then advance fake time by one frame."""
+    def _step(self):
+        """Resume the scenario when its wait is up."""
         if self.t >= self._wake_at:
             try:
                 self._wake_at = self.t + next(self._scenario)
@@ -126,7 +162,15 @@ class Harness:
             except BaseException as e:   # an assertion, most likely
                 self._error = e
                 raise _StopHarness()
-        events, self._queue = self._queue, []
+
+    def scan(self):
+        """hw.scan(): run the scenario, hand back what it pressed, then
+        advance fake time by one frame."""
+        self._step()
+        if self.neokey:
+            events = self.hw.scan()
+        else:
+            events, self._queue = self._queue, []
         fakes.CLOCK.t += FRAME
         return events
 
@@ -137,7 +181,11 @@ class Harness:
 
         class FakeHardware:
             def __init__(self):
-                self.i2c = harness.i2c
+                if harness.neokey:
+                    harness.hw = hw_neokey.NeoKeyHardware()
+                    self.i2c   = harness.hw.i2c
+                else:
+                    self.i2c = harness.i2c
 
             def scan(self):
                 return harness.scan()
@@ -164,6 +212,7 @@ class Harness:
             (startup, "run", lambda hw, disp: None),
             (groove, "_DIR", self.groove_dir),
             (time, "sleep", crashed),
+            (config, "HARDWARE", "neokey" if self.neokey else "breadboard"),
         ]
         import hw
         patches.append((hw, "Hardware", FakeHardware))
@@ -186,9 +235,9 @@ class Harness:
             raise self._error
 
 
-def run(scenario):
+def run(scenario, neokey=False):
     """Run a scenario; returns the Harness for any after-the-fact checks."""
-    h = Harness()
+    h = Harness(neokey=neokey)
     h.run(scenario)
     return h
 

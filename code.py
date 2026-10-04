@@ -78,7 +78,7 @@ def main():
     startup.run(hw, disp)
     if config.TIMING_PROBE:
         import timing_probe
-        hw = timing_probe.TimingProbe(hw)
+        hw = timing_probe.TimingProbe(hw, disp)
 
     seq        = SequencerMode(synth, disp)
     looper     = LooperMode(synth, disp, seq)
@@ -476,6 +476,7 @@ def main():
         # ── Beat LED pulse (independent of mode display; drawn last so a mode's
         #    own LED refresh above never stomps it) ────────────────────────────
         disp.set_led(config.LED_BEAT, now < beat_led_until)
+        disp.update(now)   # NeoKey: send changed pixels (rate-limited)
 
 
 try:

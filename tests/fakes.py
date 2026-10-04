@@ -209,6 +209,116 @@ _segments = _module("adafruit_ht16k33.segments", Seg14x4=Seg14x4)
 _module("adafruit_ht16k33", segments=_segments)
 
 
+# ── supervisor / keypad / neopixel (the NeoKey hardware) ──────────────────────
+
+_TICKS_MASK = (1 << 29) - 1
+TICKS_OFFSET = [0]   # shift supervisor.ticks_ms() (e.g. to just before its wrap)
+
+
+def ticks_ms():
+    """supervisor.ticks_ms(), following the fake clock; wraps at 2**29."""
+    return (int(round(CLOCK.t * 1000)) + TICKS_OFFSET[0]) & _TICKS_MASK
+
+
+_module("supervisor", ticks_ms=ticks_ms)
+
+
+class Event:
+    def __init__(self, key_number=0, pressed=True, timestamp=None):
+        self.key_number = key_number
+        self.pressed    = pressed
+        self.timestamp  = ticks_ms() if timestamp is None else timestamp
+
+    @property
+    def released(self):
+        return not self.pressed
+
+
+class _EventQueue:
+    def __init__(self):
+        self._queue     = []
+        self.overflowed = False
+
+    def push(self, event):
+        """Test hook: queue an event, as the background scanner would."""
+        self._queue.append(event)
+
+    def get_into(self, event):
+        if not self._queue:
+            return False
+        queued = self._queue.pop(0)
+        event.key_number = queued.key_number
+        event.pressed    = queued.pressed
+        event.timestamp  = queued.timestamp
+        return True
+
+    def clear(self):
+        self._queue     = []
+        self.overflowed = False
+
+    def __len__(self):
+        return len(self._queue)
+
+
+class KeyMatrix:
+    def __init__(self, row_pins, column_pins, columns_to_anodes=True,
+                 interval=0.020, max_events=64, debounce_threshold=1):
+        self.row_pins           = list(row_pins)
+        self.column_pins        = list(column_pins)
+        self.columns_to_anodes  = columns_to_anodes
+        self.interval           = interval
+        self.debounce_threshold = debounce_threshold
+        self.key_count          = len(self.row_pins) * len(self.column_pins)
+        self.events             = _EventQueue()
+
+    def deinit(self):
+        pass
+
+
+_module("keypad", Event=Event, KeyMatrix=KeyMatrix)
+
+
+class NeoPixel:
+    """`shown` is what the strip displays (as of the last show()); `shows`
+    counts sends."""
+
+    def __init__(self, pin, n, *, bpp=3, brightness=1.0, auto_write=True,
+                 pixel_order=None):
+        self.pin        = pin
+        self.n          = n
+        self.brightness = brightness
+        self.auto_write = auto_write
+        self._buffer    = [(0, 0, 0)] * n
+        self.shown      = [(0, 0, 0)] * n
+        self.shows      = 0
+
+    def __setitem__(self, index, color):
+        self._buffer[index] = tuple(color)
+        if self.auto_write:
+            self.show()
+
+    def __getitem__(self, index):
+        return self._buffer[index]
+
+    def __len__(self):
+        return self.n
+
+    def fill(self, color):
+        self._buffer = [tuple(color)] * self.n
+        if self.auto_write:
+            self.show()
+
+    def show(self):
+        self.shown = list(self._buffer)
+        self.shows += 1
+
+    def deinit(self):
+        pass
+
+
+_module("neopixel", NeoPixel=NeoPixel)
+
+
 # ── Fake clock ────────────────────────────────────────────────────────────────
 
 import clock   # noqa: E402  (project module; needs the path set up above)

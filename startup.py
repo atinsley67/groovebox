@@ -17,16 +17,20 @@ def _skip_requested(hw):
 def run(hw, disp):
     """Play the boot animation. Returns immediately if any button/pad is pressed."""
     # ── LED sweep: chase up through all 16 LEDs, then flash, then clear ────────
+    # (disp.update() sends each change straight away on the NeoKey's pixels.)
     for i in range(16):
         disp.set_led(i, True)
+        disp.update()
         time.sleep(LED_STEP_DELAY)
         if _skip_requested(hw):
             disp.clear_leds()
+            disp.update()
             disp.clear()
             return
 
     time.sleep(0.08)
     disp.clear_leds()
+    disp.update()
 
     # ── Marquee: scroll text across the 4-char alphanumeric display ────────────
     padded = "    " + MARQUEE_TEXT + "    "
