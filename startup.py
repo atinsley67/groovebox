@@ -17,7 +17,7 @@ def _skip_requested(hw):
 def run(hw, disp):
     """Play the boot animation. Returns immediately if any button/pad is pressed."""
     # ── LED sweep: chase up through all 16 LEDs, then flash, then clear ────────
-    # (disp.update() sends each change straight away on the NeoKey's pixels.)
+    # (disp.update() sends each change to the key pixels straight away.)
     for i in range(16):
         disp.set_led(i, True)
         disp.update()

@@ -1,11 +1,10 @@
 """
-Runs the real code.py main loop against scripted button presses.
+Runs the real code.py main loop against scripted key presses.
 
 A scenario is a generator function taking the Harness. It presses and
-releases buttons/pads (queued as hw.scan() events, stamped with the current
-fake time) and yields how many seconds to let the main loop run before it
-continues. Assertions go straight in the scenario; when it returns, the
-main loop is stopped.
+releases buttons/pads and yields how many seconds to let the main loop run
+before it continues. Assertions go straight in the scenario; when it
+returns, the main loop is stopped.
 
     def scenario(h):
         yield from h.tap(BTN_MENU)
@@ -13,15 +12,15 @@ main loop is stopped.
 
     Harness().run(scenario)
 
+Presses go into the fake keypad matrices (through config's layout tables),
+stamped with the current fake time, as keypad's background scan would
+queue them; the real hw.Hardware turns them into events. The LEDs are the
+fake NeoPixel strips (see pad_color / key_color).
+
 Time is fake (tests/fakes.py): every main-loop pass is one FRAME of it, so
 runs are deterministic and much faster than real time. The instances
-code.py builds (synth, looper, seq, menu, disp) are captured for
+code.py builds (hw, synth, looper, seq, menu, disp) are captured for
 inspection.
-
-Harness(neokey=True) runs with config.HARDWARE = "neokey" instead: presses
-go into the fake keypad matrices (through config's layout tables) and the
-real hw_neokey.NeoKeyHardware turns them into events, and the LEDs are the
-NeoPixel strips (see pad_color / key_color).
 """
 
 import importlib.util
@@ -35,14 +34,13 @@ import fakes
 import config
 import display
 import groove
-import hw_neokey
+import hw
 import keymap
 import looper
 import menu
 import sequencer
 import startup
 import synth_engine
-from event_types import BTN_DOWN, BTN_UP, PAD_DOWN, PAD_UP
 
 FRAME = 0.001   # seconds of fake time per main-loop pass
 
@@ -53,16 +51,13 @@ class _StopHarness(BaseException):
 
 
 class Harness:
-    def __init__(self, neokey=False):
-        self.neokey = neokey
+    def __init__(self):
+        self.hw     = None
         self.synth  = None
         self.looper = None
         self.seq    = None
         self.menu   = None
         self.disp   = None
-        self.hw     = None   # the real NeoKeyHardware, in neokey mode
-        self.i2c    = object()
-        self._queue    = []
         self._scenario = None
         self._wake_at  = 0.0
         self._error    = None
@@ -75,32 +70,20 @@ class Harness:
         return fakes.CLOCK.t
 
     def down(self, button):
-        if self.neokey:
-            self.raw_key("func", keymap.BUTTON_OF_KEY.index(button), True)
-        else:
-            self._queue.append((BTN_DOWN, button, self.t))
+        self.raw_key("func", keymap.BUTTON_OF_KEY.index(button), True)
 
     def up(self, button):
-        if self.neokey:
-            self.raw_key("func", keymap.BUTTON_OF_KEY.index(button), False)
-        else:
-            self._queue.append((BTN_UP, button, self.t))
+        self.raw_key("func", keymap.BUTTON_OF_KEY.index(button), False)
 
     def pad_down(self, pad):
-        if self.neokey:
-            self.raw_key("pad", keymap.PAD_OF_KEY.index(pad), True)
-        else:
-            self._queue.append((PAD_DOWN, pad, self.t))
+        self.raw_key("pad", keymap.PAD_OF_KEY.index(pad), True)
 
     def pad_up(self, pad):
-        if self.neokey:
-            self.raw_key("pad", keymap.PAD_OF_KEY.index(pad), False)
-        else:
-            self._queue.append((PAD_UP, pad, self.t))
+        self.raw_key("pad", keymap.PAD_OF_KEY.index(pad), False)
 
     def raw_key(self, strip, key, pressed):
-        """neokey mode: a transition of matrix key `key` on "pad" or "func",
-        stamped now -- as keypad's background scan would queue it."""
+        """A transition of matrix key `key` on "pad" or "func", stamped
+        now -- as keypad's background scan would queue it."""
         matrix = self.hw._pads if strip == "pad" else self.hw._func
         matrix.events.push(fakes.Event(key, pressed))
 
@@ -141,12 +124,12 @@ class Harness:
         return bool(self.disp._led_state & (1 << index))
 
     def pad_color(self, pad):
-        """neokey mode: the color the pixel under pad `pad` shows."""
+        """The color the pixel under pad `pad` shows."""
         strip = self.disp.pixels._pads.pixels
         return strip.shown[keymap.PAD_PIXEL[pad]]
 
     def key_color(self, button):
-        """neokey mode: the color the pixel under a function key shows."""
+        """The color the pixel under a function key shows."""
         strip = self.disp.pixels._func.pixels
         return strip.shown[keymap.FUNC_PIXEL_OF_BUTTON[button]]
 
@@ -167,10 +150,7 @@ class Harness:
         """hw.scan(): run the scenario, hand back what it pressed, then
         advance fake time by one frame."""
         self._step()
-        if self.neokey:
-            events = self.hw.scan()
-        else:
-            events, self._queue = self._queue, []
+        events = self.hw.scan()
         fakes.CLOCK.t += FRAME
         return events
 
@@ -178,14 +158,14 @@ class Harness:
         self._scenario = scenario(self)
         fakes.CLOCK.t  = 0.0
         harness = self
+        real_hardware = hw.Hardware
 
-        class FakeHardware:
+        class ScriptedHardware:
+            """The real Hardware, with scan() driving the scenario."""
+
             def __init__(self):
-                if harness.neokey:
-                    harness.hw = hw_neokey.NeoKeyHardware()
-                    self.i2c   = harness.hw.i2c
-                else:
-                    self.i2c = harness.i2c
+                harness.hw = real_hardware()
+                self.i2c   = harness.hw.i2c
 
             def scan(self):
                 return harness.scan()
@@ -204,6 +184,7 @@ class Harness:
             raise _StopHarness()
 
         patches = [
+            (hw, "Hardware", ScriptedHardware),
             (synth_engine, "SynthEngine", recording(synth_engine.SynthEngine, "synth")),
             (looper, "LooperMode", recording(looper.LooperMode, "looper")),
             (sequencer, "SequencerMode", recording(sequencer.SequencerMode, "seq")),
@@ -212,11 +193,7 @@ class Harness:
             (startup, "run", lambda hw, disp: None),
             (groove, "_DIR", self.groove_dir),
             (time, "sleep", crashed),
-            (config, "HARDWARE", "neokey" if self.neokey else "breadboard"),
         ]
-        import hw
-        patches.append((hw, "Hardware", FakeHardware))
-
         saved = [(mod, name, getattr(mod, name)) for mod, name, _ in patches]
         for mod, name, value in patches:
             setattr(mod, name, value)
@@ -235,9 +212,9 @@ class Harness:
             raise self._error
 
 
-def run(scenario, neokey=False):
+def run(scenario):
     """Run a scenario; returns the Harness for any after-the-fact checks."""
-    h = Harness(neokey=neokey)
+    h = Harness()
     h.run(scenario)
     return h
 

@@ -1,49 +1,25 @@
 import board
 
-# ── Which button / LED hardware is wired up ───────────────────────────────────
-# "breadboard": 8 loose pad buttons + 7 function buttons, LEDs on the AW9523.
-# "neokey":     the NeoKey 4x4 pad grid + 2x5 function block, a NeoPixel
-#               under every key (see the NeoKey section below, and
-#               NEOKEY_BRINGUP.md). Only one is wired at a time, so the two
-#               reuse the same GPIOs.
-HARDWARE = "neokey"
+# Hardware: a NeoKey 4x4 pad grid + 2x5 function block, a NeoPixel under
+# every key, an I2S DAC and an HT16K33 4-char display. Wiring, calibration
+# and tuning: HARDWARE.md.
 
 # ── I2S DAC (Adafruit UDA1334A or similar) ───────────────────────────────────
-# Right column (top breadboard, next to the DAC) — keeps peripheral wiring off
-# the bottom breadboard entirely.
 I2S_DATA_OUT    = board.GP18
 I2S_BIT_CLOCK   = board.GP19
 I2S_WORD_SELECT = board.GP20
 
-# ── I2C shared bus ────────────────────────────────────────────────────────────
-# Right column; GP16/GP17 is a valid I2C0 SDA/SCL pair.
+# ── I2C (the display) ─────────────────────────────────────────────────────────
+# GP16/GP17 is a valid I2C0 SDA/SCL pair.
 I2C_SDA = board.GP16
 I2C_SCL = board.GP17
 
-# 400 kHz (I2C fast mode, which both chips support) makes every display and
-# LED write ~4x quicker than the 100 kHz default. If the display or LEDs
-# glitch, or the board fails to start, go back to 100000.
+# 400 kHz (I2C fast mode, which the display supports) makes every display
+# write ~4x quicker than the 100 kHz default. If the display glitches, or
+# the board fails to start, go back to 100000.
 I2C_FREQUENCY = 400000
 
 ALPHANUM_ADDR   = 0x70  # Adafruit quad 14-segment display (HT16K33)
-LED_DRIVER_ADDR = 0x5B  # Adafruit AW9523 GPIO/LED driver with address pins soldered to make LEDS off at startup (breadboard only)
-
-# ── Breadboard: 8 pad buttons (active-low, internal pull-up) ─────────────────
-# Left column (bottom breadboard) — shortest, straight-down runs to the pads.
-PAD_PINS = [
-    board.GP0, board.GP1, board.GP2, board.GP3,
-    board.GP4, board.GP5, board.GP6, board.GP7,
-]
-
-# ── Breadboard: function buttons (active-low, internal pull-up) ──────────────
-# Left column (bottom breadboard) — same side as the pads, GP15 left spare.
-BTN_MODE_PIN      = board.GP8   # cycle layer/track (short), switch mode (long), select channel (hold+pad)
-BTN_RECORD_PIN    = board.GP9   # arm record / cycle step page
-BTN_PLAY_STOP_PIN = board.GP10  # global play/pause (short), clear active mode (2 s long)
-BTN_INC_PIN       = board.GP11  # UP: active channel's volume up; menu: highlight / value up
-BTN_DEC_PIN       = board.GP12  # DOWN: active channel's volume down; menu: highlight / value down
-BTN_MUTE_PIN      = board.GP13  # mute/unmute active layer (short), clear active layer (0.6 s long)
-BTN_MENU_PIN      = board.GP14  # open the MENU overlay; "select" while it's open
 
 # ── Button identifiers (payload in BTN_DOWN / BTN_UP events) ─────────────────
 BTN_MODE        = "mode"
@@ -55,22 +31,20 @@ BTN_INC         = "inc"
 BTN_DEC         = "dec"
 BTN_MUTE        = "mute"
 BTN_MENU        = "menu"
-BTN_VIEW        = "view"   # NeoKey only; does nothing until the pad views exist
+BTN_VIEW        = "view"   # does nothing until the pad views exist
 
-# ── NeoKey ────────────────────────────────────────────────────────────────────
-# Pins: the board's own row and column lines, as labelled on each piece.
-# (hw_neokey.py hands them to keypad swapped -- an RP2350 workaround, see
-# there; wire them as named here.) Each piece's lines run in order along
-# the Pico's left header, so one ribbon per piece lands on one stretch of
-# it: the pad grid on header pins 1-11, the function block on 12-20 (the
-# GND pins inside each stretch give that piece its pixel ground). Spare
-# after this: GP21, GP26-GP28.
+# ── NeoKey pins ───────────────────────────────────────────────────────────────
+# ROW pins are the lines on the diodes' anode side, COL pins the cathode
+# side (hw.py hands them to keypad swapped -- an RP2350 workaround, see
+# there). On the pad grid that matches the board's own row/column labels;
+# the function block's diodes run the other way, so its labelled rows are
+# its COL pins here. Spare: GP21, GP26-GP28.
 PAD_ROW_PINS   = [board.GP2, board.GP3, board.GP4, board.GP5]
 PAD_COL_PINS   = [board.GP7, board.GP8, board.GP0, board.GP1]
 PAD_PIXEL_PIN  = board.GP6    # pad grid NeoPixel data (330-470 ohm in series)
-FUNC_COL_PINS  = [board.GP10, board.GP11]                                 # the piece's 2 rows
-FUNC_ROW_PINS  = [board.GP12, board.GP13, board.GP14, board.GP15, board.GP22]  # its 5 columns
-FUNC_PIXEL_PIN = board.GP9   # function block NeoPixel data (330-470 ohm in series)
+FUNC_ROW_PINS  = [board.GP12, board.GP13, board.GP14, board.GP15, board.GP22]  # the piece's 5 labelled columns
+FUNC_COL_PINS  = [board.GP10, board.GP11]                                     # its 2 labelled rows
+FUNC_PIXEL_PIN = board.GP9    # function block NeoPixel data (330-470 ohm in series)
 
 # Key scanning (keypad, in the background). A change is reported once it has
 # been seen on KEY_DEBOUNCE_THRESHOLD scans in a row, KEY_SCAN_INTERVAL
@@ -90,7 +64,7 @@ PIXEL_BRIGHTNESS = 0.2
 # KEYS tables hold the keypad key number at each position, PIXELS tables
 # the NeoPixel index under it -- both found with io_test.py on the device
 # (it shows each key's number as you press it, and walks the pixels in
-# order). The defaults are a best guess until then.
+# order; see HARDWARE.md).
 #
 # Pad n is the n-th position reading row by row from the top left, so the 8
 # musical pads (NUM_PADS) are the top two rows.
@@ -134,7 +108,7 @@ FUNC_PIXELS = [
 # ── Diagnostics ───────────────────────────────────────────────────────────────
 # True: print main-loop timing to the serial console every 5 s (see
 # timing_probe.py). Leave False for normal playing.
-TIMING_PROBE = True
+TIMING_PROBE = False
 
 # ── Audio ─────────────────────────────────────────────────────────────────────
 SAMPLE_RATE = 22050
@@ -162,8 +136,8 @@ MODE_NAMES = ["LOOP", "SEQ "]
 # ── Status LED layout (the modes' 16-LED bitmask) ─────────────────────────────
 # LEDs 0-7:  primary status (step on/off, pad-in-loop indicators)
 # LEDs 8-15: secondary status (playback position, record/play state)
-# Breadboard: AW9523 pins. NeoKey: LEDs 0-7 are pads 0-7, LED_RECORD the
-# RECORD key, LED_PLAY + LED_BEAT the PLAY/STOP key (see pixels.py).
+# LEDs 0-7 are pads 0-7, LED_RECORD the RECORD key, LED_PLAY + LED_BEAT the
+# PLAY/STOP key (see pixels.py). Replaced by colors once the pad views exist.
 LED_RECORD   = 8   # lit while recording (not while armed / counting in)
 LED_PLAY     = 9   # lit while playing
 LED_BEAT     = 10  # pulses on each beat

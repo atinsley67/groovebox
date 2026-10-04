@@ -1,6 +1,6 @@
 """
 Desktop stand-ins for the CircuitPython modules the groovebox imports
-(board, busio, digitalio, audiobusio, synthio, adafruit_aw9523,
+(board, busio, audiobusio, synthio, supervisor, keypad, neopixel,
 adafruit_ht16k33), so the real project modules run under CPython.
 
 Importing this module installs them into sys.modules, puts the project root
@@ -8,7 +8,8 @@ on sys.path, and replaces clock.now() with a settable fake clock -- so it
 must be imported before any project module.
 
 The fakes only record what the code does to them (pressed notes, printed
-text, LED currents); none of them make sound or touch hardware.
+text, pixel colors); none of them make sound or touch hardware. Tests feed
+key presses in through the fake KeyMatrix event queues.
 """
 
 import os
@@ -27,7 +28,7 @@ def _module(name, **attrs):
     return mod
 
 
-# ── board / busio / digitalio ─────────────────────────────────────────────────
+# ── board / busio ─────────────────────────────────────────────────────────────
 
 _module("board", **{f"GP{i}": f"GP{i}" for i in range(30)})
 
@@ -41,30 +42,6 @@ class _I2C:
 
 
 _module("busio", I2C=_I2C)
-
-
-class _Direction:
-    INPUT  = "in"
-    OUTPUT = "out"
-
-
-class _Pull:
-    UP   = "up"
-    DOWN = "down"
-
-
-class _DigitalInOut:
-    def __init__(self, pin):
-        self.pin       = pin
-        self.direction = None
-        self.pull      = None
-        self.value     = True   # pull-up, not pressed
-
-    def deinit(self):
-        pass
-
-
-_module("digitalio", DigitalInOut=_DigitalInOut, Direction=_Direction, Pull=_Pull)
 
 
 # ── audiobusio ────────────────────────────────────────────────────────────────
@@ -168,20 +145,7 @@ _module("synthio", FilterMode=FilterMode, Envelope=Envelope, Biquad=Biquad,
         LFO=LFO, Note=Note, Synthesizer=Synthesizer)
 
 
-# ── Adafruit display / LED driver libraries ───────────────────────────────────
-
-class _AW9523:
-    def __init__(self, i2c, address=0x58):
-        self.LED_modes  = 0
-        self.directions = 0
-        self.currents   = {}
-
-    def set_constant_current(self, pin, value):
-        self.currents[pin] = value
-
-
-_module("adafruit_aw9523", AW9523=_AW9523)
-
+# ── Adafruit display library ──────────────────────────────────────────────────
 
 class Seg14x4:
     """`text` is what the 4-char display currently shows; `history` every

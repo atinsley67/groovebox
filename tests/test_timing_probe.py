@@ -184,7 +184,6 @@ class MainLoopWithProbeTest(unittest.TestCase):
                 h.pad_up(2)
                 yield 0.05
             harness.run(scenario)
-            harness.run(scenario, neokey=True)
         finally:
             config.TIMING_PROBE = saved
 

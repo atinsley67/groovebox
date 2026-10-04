@@ -1,6 +1,22 @@
 # Groovebox — Button Reference
 
-Pads and LEDs are numbered 1–8 here, left to right.
+## Layout
+
+The 8 musical pads are the top two rows of the 4x4 grid, numbered 1–8 here, row by row from the top left (pads 1–4 on the top row). The bottom two rows aren't used yet.
+
+The function keys, as the 2x5 block stands:
+
+| | Left | Right |
+|---|---|---|
+| Row 1 | MODE | UP |
+| Row 2 | MENU | DOWN |
+| Row 3 | RECORD | PLAY/STOP |
+| Row 4 | MUTE | VIEW (not used yet) |
+| Row 5 | — | — |
+
+Every key has a light. A pad lights blue while it's sounding (or, in SEQ mode, while its step is on). RECORD lights red while recording. PLAY/STOP is dim green while playing and flashes bright green on each beat while the sequencer runs.
+
+The layout can be changed in `config.py` (`FUNC_LAYOUT`); see `HARDWARE.md`.
 
 ## Global (always active)
 
@@ -22,7 +38,7 @@ Resuming always restarts from the top, so synced parts come back in step. Cleari
 
 The BPM is set in the menu (`BPM `). **It's locked** (the menu shows `LOCK`) while a synced session has any loop content (or a take is counting in or recording), and while a free-form loop has any layer playing (even when paused). **Switching to SEQ** is also blocked (`LOCK`) under that same free-form condition.
 
-The BEAT LED pulses on each beat while the sequencer's clock runs.
+PLAY/STOP flashes on each beat while the sequencer's clock runs.
 
 ---
 
@@ -36,7 +52,7 @@ MENU opens the menu. It works in either mode, and the loop or pattern keeps play
 | PLAY/STOP | Back one level; at the top, close the menu |
 | UP / DOWN | Move the highlight, or step a value while editing (hold to repeat) |
 | MODE | Unchanged: change layer, track or mode, and the menu follows |
-| Pads | Unchanged: they keep playing the active mode, and their LEDs keep showing it |
+| Pads | Unchanged: they keep playing the active mode, and their lights keep showing it |
 | RECORD, MUTE | Do nothing while the menu is open |
 
 Every part of the menu is a list. The display shows the highlighted item, and UP / DOWN wrap around from the last item to the first.
@@ -175,7 +191,7 @@ The display shows the active layer (`L1` … `L8`) when it's empty or playing. O
 | `DUB ` | Overdubbing |
 | `MUTE` | Muted |
 
-The RECORD LED is lit while recording, and the PLAY LED while the loop is audibly playing.
+RECORD lights red while recording, and PLAY/STOP green while the loop is audibly playing.
 
 There are **8 layers**, all sharing one loop length. Use MODE to move between them; you can't change layer mid-recording.
 
@@ -224,7 +240,7 @@ The display shows `T1P1`: the track and the step page.
 | MUTE | Mute / unmute the selected track (hold 0.6 s: clear its steps) |
 | UP / DOWN | The selected track's volume |
 
-The pad LEDs show the selected track's steps on the current page, and the step being played is always lit.
+The pad lights show the selected track's steps on the current page, and the step being played is always lit.
 
 ---
 

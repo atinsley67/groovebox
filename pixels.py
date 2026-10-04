@@ -1,5 +1,5 @@
 """
-The NeoKey's NeoPixels: one strip under the pad grid, one under the
+The keys' NeoPixels: one strip under the pad grid, one under the
 function block, each on its own data pin (config.PAD_PIXEL_PIN /
 FUNC_PIXEL_PIN), capped at config.PIXEL_BRIGHTNESS.
 
@@ -75,7 +75,7 @@ class PixelLeds:
 
     # ── Compatibility with the 16-LED bitmask ─────────────────────────────────
 
-    def show_mask(self, mask, previous):
+    def show_mask(self, mask):
         for pad in range(config.NUM_PADS):
             self.set_pad(pad, palette.PLAYBACK if mask & (1 << pad) else palette.OFF)
         self.set_button(config.BTN_RECORD,

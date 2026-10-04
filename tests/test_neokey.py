@@ -1,6 +1,6 @@
 """
-The NeoKey build (config.HARDWARE = "neokey"): keymap's layout lookups,
-hw_neokey's key scanning, pixels' LED output, and the main loop end to end
+The NeoKey hardware layer: keymap's layout lookups, hw's key scanning,
+pixels' LED output, and the main loop end to end
 on top of them.
 """
 
@@ -16,7 +16,7 @@ from config import (BTN_MODE, BTN_MENU, BTN_INC, BTN_DEC, BTN_RECORD,
                     BTN_PLAY_STOP, BTN_MUTE, BTN_VIEW)
 from event_types import PAD_DOWN, PAD_UP, BTN_DOWN
 from harness import run
-from hw_neokey import NeoKeyHardware
+from hw import Hardware
 
 MS = 0.001
 
@@ -62,11 +62,11 @@ class KeymapTest(unittest.TestCase):
                                             [BTN_VIEW, None], [None, None]])   # no MUTE
 
 
-class NeoKeyHardwareTest(unittest.TestCase):
+class HardwareTest(unittest.TestCase):
     def setUp(self):
         fakes.CLOCK.t = 10.0
         fakes.TICKS_OFFSET[0] = 0
-        self.hw = NeoKeyHardware()
+        self.hw = Hardware()
 
     def tearDown(self):
         fakes.TICKS_OFFSET[0] = 0
@@ -150,13 +150,13 @@ class PixelLedsTest(unittest.TestCase):
 
     def test_mask_compatibility(self):
         mask = (1 << 2) | (1 << config.LED_RECORD) | (1 << config.LED_PLAY)
-        self.leds.show_mask(mask, 0)
+        self.leds.show_mask(mask)
         self.leds.update()
         self.assertEqual(self.pads.shown[keymap.PAD_PIXEL[2]], palette.PLAYBACK)
         self.assertEqual(self.pads.shown[keymap.PAD_PIXEL[3]], palette.OFF)
         self.assertEqual(self.func_shown(BTN_RECORD), palette.RECORDING)
         self.assertEqual(self.func_shown(BTN_PLAY_STOP), palette.PLAYING)
-        self.leds.show_mask(mask | (1 << config.LED_BEAT), mask)
+        self.leds.show_mask(mask | (1 << config.LED_BEAT))
         self.leds.update()
         self.assertEqual(self.func_shown(BTN_PLAY_STOP), palette.BEAT)
         self.assertEqual(self.func_shown(BTN_MUTE), palette.OFF)
@@ -189,7 +189,7 @@ class NeoKeyMainLoopTest(unittest.TestCase):
             yield from h.tap(BTN_PLAY_STOP)
             yield from h.tap(BTN_PLAY_STOP)
             assert h.text == "L1  ", h.text
-        run(scenario, neokey=True)
+        run(scenario)
 
     def test_pads_play_and_light(self):
         def scenario(h):
@@ -201,14 +201,14 @@ class NeoKeyMainLoopTest(unittest.TestCase):
             h.pad_up(5)
             yield 0.03
             assert h.pad_color(5) == palette.OFF
-        run(scenario, neokey=True)
+        run(scenario)
 
     def test_volume_keys(self):
         def scenario(h):
             yield from h.tap(BTN_DEC)
             assert h.synth.channel_volume(0) == 95
             assert h.text == "V 95"
-        run(scenario, neokey=True)
+        run(scenario)
 
     def test_unused_keys_are_harmless(self):
         def scenario(h):
@@ -218,7 +218,7 @@ class NeoKeyMainLoopTest(unittest.TestCase):
             h.raw_key("pad", keymap.PAD_OF_KEY.index(12), False)
             yield from h.tap(BTN_VIEW)
             assert h.text == "L1  "
-        run(scenario, neokey=True)
+        run(scenario)
 
     def test_status_keys(self):
         def scenario(h):
@@ -230,7 +230,7 @@ class NeoKeyMainLoopTest(unittest.TestCase):
             yield 0.05
             assert h.key_color(BTN_RECORD) == palette.OFF
             assert h.key_color(BTN_PLAY_STOP) == palette.PLAYING
-        run(scenario, neokey=True)
+        run(scenario)
 
     def test_beat_flashes_play_key(self):
         def scenario(h):
@@ -241,7 +241,7 @@ class NeoKeyMainLoopTest(unittest.TestCase):
                 seen.add(h.key_color(BTN_PLAY_STOP))
                 yield 0.01
             assert {palette.PLAYING, palette.BEAT} <= seen, seen
-        run(scenario, neokey=True)
+        run(scenario)
 
     def test_pixel_sends_are_capped(self):
         def scenario(h):
@@ -256,7 +256,7 @@ class NeoKeyMainLoopTest(unittest.TestCase):
             yield 1.2
             sends = strip.shows - before
             assert sends <= 2.0 * 61, sends
-        run(scenario, neokey=True)
+        run(scenario)
 
 
 if __name__ == "__main__":

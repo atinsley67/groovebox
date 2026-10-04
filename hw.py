@@ -1,103 +1,114 @@
 """
-Button input: Hardware() returns the backend config.HARDWARE names. Both
-have the same interface -- `i2c` (the shared bus), scan() -> list of
-(event_type, payload, event_time) events since the last call, deinit().
+Button input: the NeoKey 4x4 pad grid and 2x5 function block, each its own
+keypad.KeyMatrix. keypad scans them in the background (firmware, not
+Python), timestamps every transition and queues it; scan() just drains both
+queues into (event_type, payload, event_time) events, merged in time order.
+A pad press is a PAD_DOWN for its pad index, a function key a BTN_DOWN for
+its button id (keymap.py, from config's layout tables).
 
-  "breadboard": BreadboardHardware below -- the loose buttons, polled and
-                debounced in Python every scan().
-  "neokey":     hw_neokey.NeoKeyHardware -- the key matrices, scanned in the
-                background by keypad.
+RP2350 workaround: the NeoKey's diodes call for columns_to_anodes=False,
+which relies on internal pull-downs -- and those don't work on the RP2350
+(erratum E9; see the keypad docs). So each matrix gets config's row and
+column lines swapped, with columns_to_anodes=True: the same diode
+direction, using pull-ups. Key numbers therefore run down config's columns
+(column * row count + row); config's PAD_KEYS / FUNC_KEYS tables absorb
+that, along with how each piece is mounted.
+
+Timestamps: keypad stamps events in supervisor.ticks_ms (whole ms, wrapping
+at 2**29); each is converted to clock.now()'s timebase by its age
+(event_time = now - age), less config.KEY_TIME_ADJUST -- see there.
+
+scan() allocates nothing when no key has changed (the common case): one
+reused keypad.Event, and the clock is only read when there's an event.
 """
 
 import busio
-import digitalio
-import board
+import keypad
+import supervisor
 
 import clock
 import config
+import keymap
 from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, BTN_UP
 
-# Debounce window in seconds
-_DEBOUNCE = 0.020
+_TICKS_PERIOD = 1 << 29
+_TICKS_MAX    = _TICKS_PERIOD - 1
+_TICKS_HALF   = _TICKS_PERIOD // 2
+
+_NO_EVENTS = ()
 
 
-def Hardware():
-    if config.HARDWARE == "neokey":
-        import hw_neokey   # keypad only needed (and only imported) for this one
-        return hw_neokey.NeoKeyHardware()
-    return BreadboardHardware()
-
-_FUNC_BUTTONS = [
-    (config.BTN_MODE_PIN,      config.BTN_MODE),
-    (config.BTN_RECORD_PIN,    config.BTN_RECORD),
-    (config.BTN_PLAY_STOP_PIN, config.BTN_PLAY_STOP),
-    (config.BTN_INC_PIN,       config.BTN_INC),
-    (config.BTN_DEC_PIN,       config.BTN_DEC),
-    (config.BTN_MUTE_PIN,      config.BTN_MUTE),
-    (config.BTN_MENU_PIN,      config.BTN_MENU),
-]
+def _ticks_diff(ticks1, ticks2):
+    """Signed ticks1 - ticks2 in ms, across the 2**29 wrap."""
+    diff = (ticks1 - ticks2) & _TICKS_MAX
+    return ((diff + _TICKS_HALF) & _TICKS_MAX) - _TICKS_HALF
 
 
-class BreadboardHardware:
+def _event_time(event):
+    return event[2]
+
+
+def _matrix(rows, cols):
+    """A KeyMatrix for one piece, row/column lines swapped (see above)."""
+    return keypad.KeyMatrix(
+        row_pins=cols, column_pins=rows, columns_to_anodes=True,
+        interval=config.KEY_SCAN_INTERVAL,
+        debounce_threshold=config.KEY_DEBOUNCE_THRESHOLD,
+    )
+
+
+class Hardware:
     def __init__(self):
         self.i2c = busio.I2C(config.I2C_SCL, config.I2C_SDA,
                              frequency=config.I2C_FREQUENCY)
+        self._pads = _matrix(config.PAD_ROW_PINS, config.PAD_COL_PINS)
+        self._func = _matrix(config.FUNC_ROW_PINS, config.FUNC_COL_PINS)
 
-        # Pad buttons
-        self._pads = []
-        for pin in config.PAD_PINS:
-            btn = digitalio.DigitalInOut(pin)
-            btn.direction = digitalio.Direction.INPUT
-            btn.pull = digitalio.Pull.UP
-            self._pads.append(btn)
-
-        # Function buttons
-        self._func = []
-        for pin, btn_id in _FUNC_BUTTONS:
-            btn = digitalio.DigitalInOut(pin)
-            btn.direction = digitalio.Direction.INPUT
-            btn.pull = digitalio.Pull.UP
-            self._func.append((btn, btn_id))
-
-        # Debounce state: (last_raw_value, stable_value, last_change_time)
-        n_pads = len(self._pads)
-        n_func = len(self._func)
-        now = clock.now()
-        self._pad_state  = [(True, True, now)] * n_pads
-        self._func_state = [(True, True, now)] * n_func
+        # Pads past NUM_PADS give no events until the modes handle them.
+        pad_of_key = [pad if pad < config.NUM_PADS else None
+                      for pad in keymap.PAD_OF_KEY]
+        # (event queue, key number -> payload, press type, release type)
+        self._sources = (
+            (self._pads.events, pad_of_key,            PAD_DOWN, PAD_UP),
+            (self._func.events, keymap.BUTTON_OF_KEY,  BTN_DOWN, BTN_UP),
+        )
+        self._event = keypad.Event()   # reused by get_into(): no allocation
 
     def scan(self):
-        """Return a list of (event_type, payload, event_time) events since
-        the last call. event_time is when the pin actually transitioned
-        (last_t), not when the debounce window confirmed it (now) -- so
-        callers doing precise timing (e.g. recording loop position) get the
-        real press moment instead of one _DEBOUNCE (20ms) late, every time."""
-        events = []
-        now = clock.now()
-
-        for i, btn in enumerate(self._pads):
-            raw, stable, last_t = self._pad_state[i]
-            current = btn.value  # True = not pressed (pull-up, active-low)
-            if current != raw:
-                self._pad_state[i] = (current, stable, now)
-            elif current != stable and (now - last_t) >= _DEBOUNCE:
-                self._pad_state[i] = (current, current, now)
-                events.append((PAD_DOWN if not current else PAD_UP, i, last_t))
-
-        for i, (btn, btn_id) in enumerate(self._func):
-            raw, stable, last_t = self._func_state[i]
-            current = btn.value
-            if current != raw:
-                self._func_state[i] = (current, stable, now)
-            elif current != stable and (now - last_t) >= _DEBOUNCE:
-                self._func_state[i] = (current, current, now)
-                events.append((BTN_DOWN if not current else BTN_UP, btn_id, last_t))
-
+        """(event_type, payload, event_time) for every key transition since
+        the last call, oldest first. event_time is when the key actually
+        changed -- see the module docstring."""
+        events = None
+        event  = self._event
+        for queue, payload_of_key, down, up in self._sources:
+            while queue.get_into(event):
+                payload = payload_of_key[event.key_number]
+                if payload is None:
+                    continue
+                if events is None:
+                    events = []
+                    now    = clock.now()
+                    ticks  = supervisor.ticks_ms()
+                age = _ticks_diff(ticks, event.timestamp) / 1000
+                events.append((down if event.pressed else up, payload,
+                               now - age - config.KEY_TIME_ADJUST))
+        if events is None:
+            return _NO_EVENTS
+        if len(events) > 1:
+            events.sort(key=_event_time)   # merge the two matrices in time order
         return events
 
+    def raw_events(self):
+        """For io_test.py: every transition as ("pad" | "func", key number,
+        pressed), unmapped -- unassigned keys and pads past NUM_PADS too."""
+        out   = []
+        event = self._event
+        for name, matrix in (("pad", self._pads), ("func", self._func)):
+            while matrix.events.get_into(event):
+                out.append((name, event.key_number, event.pressed))
+        return out
+
     def deinit(self):
-        for btn in self._pads:
-            btn.deinit()
-        for btn, _ in self._func:
-            btn.deinit()
+        self._pads.deinit()
+        self._func.deinit()
         self.i2c.deinit()
