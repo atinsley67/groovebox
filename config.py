@@ -22,7 +22,7 @@ I2C_FREQUENCY = 400000
 ALPHANUM_ADDR   = 0x70  # Adafruit quad 14-segment display (HT16K33)
 
 # ── Button identifiers (payload in BTN_DOWN / BTN_UP events) ─────────────────
-BTN_MODE        = "mode"
+BTN_MODE        = "mode"      # the LOOP/SEQ key
 BTN_RECORD      = "rec"
 BTN_PLAY_STOP   = "play"
 # The UP / DOWN keys. Not BTN_UP / BTN_DOWN: those are the button
@@ -31,7 +31,9 @@ BTN_INC         = "inc"
 BTN_DEC         = "dec"
 BTN_MUTE        = "mute"
 BTN_MENU        = "menu"
-BTN_VIEW        = "view"   # does nothing until the pad views exist
+BTN_VIEW        = "view"      # pads: the mode's own view <-> the channel view
+BTN_KEY_MODE    = "keymode"   # channel view: what a pad tap does (select / mute)
+BTN_CLEAR       = "clear"
 
 # ── NeoKey pins ───────────────────────────────────────────────────────────────
 # ROW pins are the lines on the diodes' anode side, COL pins the cathode
@@ -84,13 +86,14 @@ PAD_PIXELS = [
 ]
 
 # The function block, standing as 5 rows x 2 columns. FUNC_LAYOUT is which
-# button each key is -- rearrange freely; None = unassigned (no events).
+# button each key is -- rearrange freely (each button exactly once);
+# None = unassigned (no events).
 FUNC_LAYOUT = [
-    [BTN_MODE,   BTN_INC],
-    [BTN_MENU,   BTN_DEC],
-    [BTN_RECORD, BTN_PLAY_STOP],
-    [BTN_MUTE,   BTN_VIEW],
-    [None,       None],
+    [BTN_MODE,   BTN_PLAY_STOP],
+    [BTN_MENU,   BTN_INC],
+    [BTN_RECORD, BTN_DEC],
+    [BTN_VIEW,   BTN_KEY_MODE],
+    [BTN_MUTE,   BTN_CLEAR],
 ]
 FUNC_KEYS = [
     [0, 5],

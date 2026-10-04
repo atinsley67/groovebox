@@ -13,7 +13,7 @@ import config
 import keymap
 import palette
 from config import (BTN_MODE, BTN_MENU, BTN_INC, BTN_DEC, BTN_RECORD,
-                    BTN_PLAY_STOP, BTN_MUTE, BTN_VIEW)
+                    BTN_PLAY_STOP, BTN_MUTE, BTN_VIEW, BTN_KEY_MODE, BTN_CLEAR)
 from event_types import PAD_DOWN, PAD_UP, BTN_DOWN
 from harness import run
 from hw import Hardware
@@ -32,9 +32,16 @@ class KeymapTest(unittest.TestCase):
                                      config.FUNC_PIXELS[r][c])
 
     def test_requested_layout(self):
-        # Up/down top right, mode/menu top left.
-        self.assertEqual(config.FUNC_LAYOUT[0], [BTN_MODE, BTN_INC])
-        self.assertEqual(config.FUNC_LAYOUT[1], [BTN_MENU, BTN_DEC])
+        self.assertEqual(config.FUNC_LAYOUT, [
+            [BTN_MODE,   BTN_PLAY_STOP],
+            [BTN_MENU,   BTN_INC],
+            [BTN_RECORD, BTN_DEC],
+            [BTN_VIEW,   BTN_KEY_MODE],
+            [BTN_MUTE,   BTN_CLEAR],
+        ])
+
+    def test_every_function_key_has_a_job(self):
+        self.assertNotIn(None, keymap.BUTTON_OF_KEY)
 
     def test_pads_number_row_by_row(self):
         for r in range(4):
@@ -57,9 +64,9 @@ class KeymapTest(unittest.TestCase):
     def test_bad_tables_rejected(self):
         self.check_rejected("PAD_KEYS", [[0, 0, 1, 2]] + config.PAD_KEYS[1:])
         self.check_rejected("FUNC_PIXELS", config.FUNC_PIXELS[:4])
-        self.check_rejected("FUNC_LAYOUT", [[BTN_MODE, BTN_INC], [BTN_MENU, BTN_DEC],
-                                            [BTN_RECORD, BTN_PLAY_STOP],
-                                            [BTN_VIEW, None], [None, None]])   # no MUTE
+        self.check_rejected("FUNC_LAYOUT", [[BTN_MODE, BTN_PLAY_STOP], [BTN_MENU, BTN_INC],
+                                            [BTN_RECORD, BTN_DEC], [BTN_VIEW, BTN_KEY_MODE],
+                                            [BTN_CLEAR, None]])   # no MUTE
 
 
 class HardwareTest(unittest.TestCase):
@@ -120,9 +127,15 @@ class HardwareTest(unittest.TestCase):
         (_, _, event_time), = self.hw.scan()
         self.assertAlmostEqual(event_time, 10.0 - 0.005 - config.KEY_TIME_ADJUST)
 
-    def test_unused_keys_give_no_events(self):
-        self.push("func", keymap.BUTTON_OF_KEY.index(None), True, ms_ago=0)
-        self.assertEqual(len(self.hw.scan()), 0)
+    def test_unassigned_keys_give_no_events(self):
+        # Every key is assigned in the shipped layout; unassign one.
+        saved = keymap.BUTTON_OF_KEY[9]
+        keymap.BUTTON_OF_KEY[9] = None
+        try:
+            self.push("func", 9, True, ms_ago=0)
+            self.assertEqual(len(self.hw.scan()), 0)
+        finally:
+            keymap.BUTTON_OF_KEY[9] = saved
 
     def test_every_pad_gives_events(self):
         for key in range(keymap.NUM_PAD_KEYS):
@@ -191,8 +204,7 @@ class NeoKeyMainLoopTest(unittest.TestCase):
             assert h.text == "SND ", h.text
             yield from h.tap(BTN_INC)
             assert h.text == "ASGN"
-            yield from h.tap(BTN_PLAY_STOP)
-            yield from h.tap(BTN_PLAY_STOP)
+            yield from h.tap(BTN_RECORD)                  # back: closes from root
             assert h.text == "L1  ", h.text
         run(scenario)
 
@@ -213,14 +225,6 @@ class NeoKeyMainLoopTest(unittest.TestCase):
             yield from h.tap(BTN_DEC)
             assert h.synth.channel_volume(0) == 95
             assert h.text == "V 95"
-        run(scenario)
-
-    def test_unused_keys_are_harmless(self):
-        def scenario(h):
-            h.raw_key("func", keymap.BUTTON_OF_KEY.index(None), True)
-            yield 0.05
-            yield from h.tap(BTN_VIEW)
-            assert h.text == "L1  "
         run(scenario)
 
     def test_status_keys(self):

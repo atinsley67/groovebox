@@ -75,9 +75,11 @@ class PixelLeds:
 
     # ── Compatibility with the LED bitmask ────────────────────────────────────
 
-    def show_mask(self, mask):
-        for pad in range(config.NUM_PADS):
-            self.set_pad(pad, palette.PLAYBACK if mask & (1 << pad) else palette.OFF)
+    def show_mask(self, mask, pads=True):
+        """pads=False: only the status keys (a pad frame owns the pads)."""
+        if pads:
+            for pad in range(config.NUM_PADS):
+                self.set_pad(pad, palette.PLAYBACK if mask & (1 << pad) else palette.OFF)
         self.set_button(config.BTN_RECORD,
                         palette.RECORDING if mask & _RECORD_BIT else palette.OFF)
         if mask & _BEAT_BIT:

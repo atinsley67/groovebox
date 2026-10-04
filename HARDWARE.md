@@ -43,7 +43,7 @@ Running on battery or another supply would mean rethinking this.
 `config.py`'s layout tables say where each key and pixel sits, written as you look at each piece (top row first):
 - `PAD_KEYS` and `FUNC_KEYS` hold key numbers.
 - `PAD_PIXELS` and `FUNC_PIXELS` hold pixel indices.
-- `FUNC_LAYOUT` says which button each function key is. It's free to rearrange without recalibrating.
+- `FUNC_LAYOUT` says which button each function key is. It's free to rearrange without recalibrating, as long as each of the 10 buttons appears exactly once.
 
 Pad n is the n-th key reading row by row from the top left (pads 1–4 are the top row). Kit sounds and sequencer steps follow that order. Melodic notes are derived from it, lowest at the bottom left (`keymap.NOTE_OF_PAD`), so they follow a remounted grid automatically. A mistyped table stops startup with an error naming it.
 

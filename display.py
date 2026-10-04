@@ -8,8 +8,10 @@ LED layout:
   bits 0..NUM_PADS-1 : the pads (step on/off, pad sounding)
   LED_RECORD, LED_PLAY, LED_BEAT (config) : the status keys, above the pads
 
-The focused mode always owns the LEDs. The 4-char text can be held by an
-overlay (the menu, or code.py's volume / LOCK flash) -- see hold_text().
+The focused mode always owns the LEDs, except that a pad frame (the channel
+view's colors, set_pad_frame()) overrides the bitmask's pad bits while it's
+up. The 4-char text can be held by an overlay (the menu, or code.py's
+volume / LOCK / CLEAR flash) -- see hold_text().
 
 Call update(now) once per main-loop pass: the NeoPixels are sent from
 there, rate-limited.
@@ -29,6 +31,7 @@ class DisplayManager:
         self._leds = pixels.PixelLeds()
         self._led_state = 0          # bitmask, bit N = LED N, desired state
         self._led_shown = 0          # bitmask last handed to the LEDs (all off at start)
+        self._pad_frame = False      # True while set_pad_frame() owns the pads
 
         # auto_write off: with it on, print() already sends the text and the
         # explicit show() sent it a second time. _write_text() is the one
@@ -72,8 +75,25 @@ class DisplayManager:
     def _flush_leds(self):
         if self._led_state == self._led_shown:
             return
-        self._leds.show_mask(self._led_state)
+        self._leds.show_mask(self._led_state, pads=not self._pad_frame)
         self._led_shown = self._led_state
+
+    def set_pad_frame(self, frame):
+        """Color every pad from `frame` (a color per pad), overriding the
+        bitmask's pad bits until set_pad_frame(None) hands them back."""
+        if frame is None:
+            if self._pad_frame:
+                self._pad_frame = False
+                self._leds.show_mask(self._led_state)
+                self._led_shown = self._led_state
+            return
+        self._pad_frame = True
+        for pad in range(len(frame)):
+            self._leds.set_pad(pad, frame[pad])
+
+    def set_key_color(self, button, color):
+        """Color a function key the bitmask doesn't drive (KEY MODE, CLEAR)."""
+        self._leds.set_button(button, color)
 
     def update(self, now=None):
         """Send pending LED changes. Pass the main loop's `now` (sends are

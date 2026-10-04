@@ -1,7 +1,8 @@
-﻿"""
+"""
 End-to-end scenarios through the real code.py main loop (see harness.py):
-the list menu, pads staying live under it, RECORD/MUTE inert in it, the BPM
-item and tempo lock, UP/DOWN channel volume, and grooves.
+the list menu, pads staying live under it, RECORD as its back key, MUTE /
+CLEAR inert in it, the BPM item and tempo lock, UP/DOWN channel volume, and
+grooves.
 """
 
 import json
@@ -11,7 +12,7 @@ import fakes  # noqa: F401  (installs the CircuitPython fakes first)
 
 from harness import Harness, run
 from config import (BTN_MENU, BTN_PLAY_STOP, BTN_INC, BTN_DEC, BTN_RECORD,
-                    BTN_MUTE, BTN_MODE)
+                    BTN_MUTE, BTN_MODE, BTN_VIEW, BTN_CLEAR, NUM_LOOP_LAYERS)
 
 ROOT_LABELS = ["SND ", "ASGN", "BPM ", "EXT ", "MIRR", "SAVE", "LOAD"]
 MSG = 0.7   # just past the menu's _MSG_DURATION
@@ -26,15 +27,18 @@ def open_menu_at(h, label):
 
 
 def switch_mode(h):
-    yield from h.hold(BTN_MODE, 0.7)
+    yield from h.tap(BTN_MODE)
 
 
 def select_layer(h, layer):
-    h.down(BTN_MODE)
-    yield 0.02
+    """Choose a loop layer in the channel view (back to the keyboard after)."""
+    yield from h.tap(BTN_VIEW)
     yield from h.pad_tap(layer)
-    h.up(BTN_MODE)
-    yield 0.03
+
+
+def select_track(h, track):
+    yield from h.tap(BTN_VIEW)
+    yield from h.pad_tap(NUM_LOOP_LAYERS + track)
 
 
 def record_freeform_loop(h):
@@ -57,9 +61,34 @@ class MenuNavigationTest(unittest.TestCase):
             assert h.text == "SND "
             yield from h.tap(BTN_DEC)
             assert h.text == "LOAD"
-            yield from h.tap(BTN_PLAY_STOP)          # close from root
+            yield from h.tap(BTN_RECORD)             # close from root
             assert h.text == "L1  ", h.text
-            assert not h.looper.transport_playing   # the back press isn't a transport press
+            assert h.looper._rec_state == "IDLE"    # the back press doesn't arm
+        run(scenario)
+
+    def test_record_backs_out_one_level(self):
+        def scenario(h):
+            yield from open_menu_at(h, "BPM ")
+            yield from h.tap(BTN_MENU)
+            assert h.text == "b120"
+            yield from h.tap(BTN_RECORD)
+            assert h.text == "BPM "
+            yield from h.tap(BTN_RECORD)
+            assert h.text == "L1  "
+            yield from h.tap(BTN_RECORD)             # menu closed: records again
+            assert h.looper._rec_state == "ARM "
+        run(scenario)
+
+    def test_play_stop_is_the_transport_in_the_menu(self):
+        def scenario(h):
+            yield from h.tap(BTN_MENU)
+            yield from h.tap(BTN_PLAY_STOP)
+            assert h.looper.transport_playing
+            assert h.text == "SND "                  # still in the menu
+            yield from switch_mode(h)                # SEQ, menu still open
+            yield from h.tap(BTN_PLAY_STOP)
+            assert h.seq.playing
+            assert h.text == "SND "
         run(scenario)
 
     def test_loop_only_items_in_seq(self):
@@ -97,15 +126,16 @@ class PadsUnderMenuTest(unittest.TestCase):
             assert h.seq._grid[0][3]
             assert h.led(3)
             assert h.text == "SND "
-            yield from h.tap(BTN_PLAY_STOP)
+            yield from h.tap(BTN_RECORD)
             assert h.text == "T1  "
         run(scenario)
 
-    def test_mode_pad_still_selects_channel(self):
+    def test_channel_view_selects_under_the_menu(self):
         def scenario(h):
             yield from h.tap(BTN_MENU)
             yield from select_layer(h, 4)
             assert h.looper.active_idx == 4
+            assert h.text == "SND "
         run(scenario)
 
     def test_held_note_releases_after_menu_opens(self):
@@ -123,13 +153,13 @@ class PadsUnderMenuTest(unittest.TestCase):
 
 
 class InertInMenuTest(unittest.TestCase):
-    def test_record_does_not_arm(self):
+    def test_record_closes_instead_of_arming(self):
         def scenario(h):
             yield from h.tap(BTN_MENU)
             yield from h.tap(BTN_RECORD)
             assert h.looper.is_idle
             assert h.looper._rec_state == "IDLE"
-            assert h.text == "SND "
+            assert h.text == "L1  "
         run(scenario)
 
     def test_record_does_not_arm_a_synced_take(self):
@@ -151,9 +181,19 @@ class InertInMenuTest(unittest.TestCase):
             yield from h.tap(BTN_MENU)
             yield from h.tap(BTN_MUTE)
             assert layer.state == "PLY "
-            yield from h.tap(BTN_PLAY_STOP)
+            yield from h.tap(BTN_RECORD)
             yield from h.tap(BTN_MUTE)
             assert layer.state == "MUTE"
+        run(scenario)
+
+    def test_clear_does_nothing(self):
+        def scenario(h):
+            yield from record_freeform_loop(h)
+            yield from h.tap(BTN_MENU)
+            yield from h.tap(BTN_CLEAR)
+            assert h.text == "SND "
+            yield from h.tap(BTN_MENU)                # select SND, not a confirm
+            assert h.looper._layers[0].state == "PLY "
         run(scenario)
 
     def test_sync_still_detected_outside_menu(self):
@@ -181,7 +221,7 @@ class BpmItemTest(unittest.TestCase):
             yield from h.tap(BTN_MENU)          # done
             assert h.text == "BPM "
             yield from h.tap(BTN_MENU)
-            yield from h.tap(BTN_PLAY_STOP)     # back also leaves the editor
+            yield from h.tap(BTN_RECORD)        # back also leaves the editor
             assert h.text == "BPM "
         run(scenario)
 
@@ -254,7 +294,7 @@ class ChannelVolumeTest(unittest.TestCase):
     def test_per_layer(self):
         def scenario(h):
             yield from h.tap(BTN_DEC)
-            yield from h.tap(BTN_MODE)          # short press: layer 2
+            yield from select_layer(h, 1)
             assert h.looper.active_idx == 1
             yield from h.taps(BTN_DEC, 2)
             assert h.synth.channel_volume(1) == 90
@@ -267,7 +307,7 @@ class ChannelVolumeTest(unittest.TestCase):
     def test_seq_track(self):
         def scenario(h):
             yield from switch_mode(h)
-            yield from h.tap(BTN_MODE)          # track 2
+            yield from select_track(h, 1)
             yield from h.tap(BTN_DEC)
             assert h.synth.track_volume(1) == 95
             assert h.synth.track_volume(0) == 100
@@ -320,7 +360,7 @@ class ChannelVolumeTest(unittest.TestCase):
                 seen.append(h.text)
                 yield from h.tap(BTN_INC)
             assert seen == names, seen
-            yield from h.tap(BTN_PLAY_STOP)               # cancel
+            yield from h.tap(BTN_RECORD)                  # cancel
             yield 0.3
             assert h.synth.channel_instrument_id(0) == 0
         run(scenario)
@@ -345,9 +385,9 @@ class SoundEditTest(unittest.TestCase):
             yield from h.tap(BTN_MENU)                    # back to the list
             assert h.text == "WAVE"
             yield from h.tap(BTN_MENU)
-            yield from h.tap(BTN_PLAY_STOP)               # back also leaves editing
+            yield from h.tap(BTN_RECORD)                  # back also leaves editing
             assert h.text == "WAVE"
-            yield from h.tap(BTN_PLAY_STOP)
+            yield from h.tap(BTN_RECORD)
             assert h.text == "SND "
             yield from h.tap(BTN_MENU)
             yield MSG
@@ -426,7 +466,7 @@ class SoundEditTest(unittest.TestCase):
             yield from h.tap(BTN_MENU)
             assert h.text == "SURE"
             assert abs(h.synth.get_drum_param(0, "amp") - 0.95) < 1e-9
-            yield from h.tap(BTN_PLAY_STOP)               # back cancels
+            yield from h.tap(BTN_RECORD)                  # back cancels
             assert h.text == "RST "
             yield from h.tap(BTN_MENU)
             yield from h.tap(BTN_MENU)
@@ -440,7 +480,7 @@ class SoundEditTest(unittest.TestCase):
             yield from open_menu_at(h, "SND ")
             yield from h.tap(BTN_MENU)
             yield MSG
-            yield from h.tap(BTN_MODE)
+            yield from select_track(h, 1)
             assert h.text == "DNBK"
         run(scenario)
 
@@ -453,7 +493,7 @@ class GrooveTest(unittest.TestCase):
             assert h.text == "S01 "
             yield from h.tap(BTN_DEC)
             assert h.text == "S16 "
-            yield from h.tap(BTN_PLAY_STOP)
+            yield from h.tap(BTN_RECORD)
             yield from h.tap(BTN_INC)
             yield from h.tap(BTN_MENU)
             assert h.text == "L16 "
@@ -478,12 +518,12 @@ class GrooveTest(unittest.TestCase):
             yield from h.tap(BTN_INC)
             yield from h.tap(BTN_MENU)
             assert h.text == "L03*"
-            yield from h.tap(BTN_PLAY_STOP)
+            yield from h.tap(BTN_RECORD)
             yield from h.tap(BTN_DEC)
             yield from h.tap(BTN_MENU)
             assert h.text == "S03*"
-            yield from h.tap(BTN_PLAY_STOP)
-            yield from h.tap(BTN_PLAY_STOP)               # close
+            yield from h.tap(BTN_RECORD)
+            yield from h.tap(BTN_RECORD)                  # close
             yield from h.taps(BTN_INC, 2)                 # track 1 back to 100
             h.synth.set_channel_volume(0, 100)
             yield from open_menu_at(h, "LOAD")

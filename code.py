@@ -4,27 +4,39 @@ Groovebox — main entry point.
 Main loop responsibilities:
   1. Scan hardware for button events.
   2. Drive the drift-free tempo clock (TICK / BEAT events) when playing.
-  3. Dispatch events to the active (focused) mode.
+  3. Dispatch events to the active (focused) mode, the menu, or the
+     channel view.
   4. Run sync coordinator: looper + sequencer dual-play and snap-to-bar logic.
   5. Call synth_engine.update() each iteration for pending note-off releases.
 
-MODE button gesture handling (intercepted here, not passed to modes):
-  Short press alone  — cycle active layer / track within current mode
-  Long press alone   — switch global mode (looper ↔ sequencer)
-  Hold + pad press   — jump directly to that layer / track
-  (All three keep working while the MENU overlay is open; it retargets.)
+Function keys (BUTTONS.md has the player's version). Every key does one
+thing, on press -- no long presses; only UP/DOWN repeat while held:
+  LOOP/SEQ   — switch the global mode, showing its own view
+  PLAY/STOP  — the transport, menu open or not
+  MENU       — open the menu; "select" in it; confirm an armed CLEAR
+  RECORD     — the active mode's; "back" in the menu (closing it from root)
+  UP/DOWN    — the active channel's volume ("V 80"); move / step in the menu
+  VIEW       — the pads: the mode's own view <-> the channel view
+  KEY MODE   — in the channel view, what a pad tap does: select <-> mute
+  MUTE       — the active mode's (mute the selected channel)
+  CLEAR      — arm clearing the selected channel; CLEAR again: every
+               channel in the mode. MENU confirms; any other function key
+               cancels and does nothing else; so does _CLEAR_TIMEOUT.
+               Pads keep playing (a channel-view tap cancels it, though).
 
-UP/DOWN with the menu closed: step the active channel's volume (the active
-loop layer in LOOP, the selected track in SEQ), held = auto-repeat; the
-level flashes on the display ("V 80").
+Channel view (channel_view.py draws it): loop layers on pads 0-7,
+sequencer tracks on 8-15. KEY MODE select (always the mode on entering):
+a tap selects that channel -- switching LOOP/SEQ if it's on the other
+side -- and goes straight back to that mode's own view. KEY MODE mute: a
+tap mutes / unmutes that channel and stays. Its pads never reach the
+modes.
 
-MENU overlay (menu.py): BTN_MENU opens it; while open, MENU is "select",
-PLAY/STOP is "back" (closing it from root) instead of the transport, and
-UP/DOWN move through it. The pads keep playing the active mode (which
-keeps the LEDs -- the menu holds only the text); RECORD and MUTE do
-nothing. Its BPM item calls back into set_bpm / tempo_locked, and SAVE /
-LOAD into capture_groove / apply_groove below, since BPM and sync mode
-live here.
+MENU overlay (menu.py): while open, MENU and UP/DOWN go to it and RECORD is
+its "back". The pads keep going to the active mode (or the channel view),
+which keeps the LEDs -- the menu holds only the text. LOOP/SEQ, PLAY/STOP,
+VIEW and KEY MODE work as usual; MUTE and CLEAR do nothing. Its BPM item
+calls back into set_bpm / tempo_locked, and SAVE / LOAD into
+capture_groove / apply_groove below, since BPM and sync mode live here.
 
 Sync modes (sync_mode variable):
   "none"     — no loop recorded yet; modes are fully independent
@@ -41,28 +53,31 @@ import traceback
 
 import clock
 import config
-from config import (DEFAULT_BPM, STEPS_PER_BAR,
-                    MODE_LOOPER, NUM_MODES, MODE_NAMES,
+import palette
+from config import (DEFAULT_BPM, STEPS_PER_BAR, NUM_LOOP_LAYERS, NUM_TRACKS,
+                    MODE_LOOPER, MODE_SEQUENCER, NUM_MODES, MODE_NAMES,
                     BTN_MODE, BTN_RECORD, BTN_PLAY_STOP, BTN_INC, BTN_DEC,
-                    BTN_MENU)
-from event_types import BTN_DOWN, BTN_UP, PAD_DOWN, PAD_UP, TICK, BEAT
+                    BTN_MENU, BTN_VIEW, BTN_KEY_MODE, BTN_CLEAR)
+from event_types import BTN_DOWN, PAD_DOWN, PAD_UP, TICK, BEAT
 
-from hw          import Hardware
+from hw           import Hardware
 from synth_engine import SynthEngine
-from display     import DisplayManager
-from looper      import LooperMode
-from sequencer   import SequencerMode
-from menu        import MenuMode
+from display      import DisplayManager
+from looper       import LooperMode
+from sequencer    import SequencerMode
+from menu         import MenuMode
+from channel_view import ChannelView
 import startup
 
-_MODE_LONG_PRESS      = 0.6  # seconds: hold BTN_MODE with no pad to switch global mode
-_PLAY_STOP_LONG_PRESS = 2.0  # seconds: hold PLAY/STOP to clear the active mode
 _BEAT_PULSE_DURATION  = 0.06 # seconds: how long LED_BEAT stays lit per quarter note
 _FLASH_HOLD           = 1.0  # seconds: how long the volume readout stays up after the last change
-_LOCK_FLASH_HOLD      = 0.8  # seconds: how long a blocked mode switch shows LOCK
+_LOCK_FLASH_HOLD      = 0.8  # seconds: how long LOCK / BUSY / DONE show
 _VOLUME_REPEAT_DELAY  = 0.4  # seconds: how long UP/DOWN must be held before auto-repeat kicks in
 _VOLUME_REPEAT_INTERVAL = 0.1 # seconds between auto-repeat steps while held
 _VOLUME_STEP          = 5    # % per UP/DOWN step
+_CLEAR_TIMEOUT        = 3.0  # seconds an armed CLEAR waits for MENU
+_CLEAR_BLINK_HZ       = 4.0  # the armed CLEAR key's blink
+_VIEW_FRAME_INTERVAL  = 1 / 30  # seconds between channel-view redraws
 
 
 def step_duration(bpm):
@@ -82,6 +97,7 @@ def main():
 
     seq        = SequencerMode(synth, disp)
     looper     = LooperMode(synth, disp, seq)
+    channels   = ChannelView(looper, seq)
 
     modes      = [looper, seq]
     mode_index = MODE_LOOPER
@@ -93,17 +109,12 @@ def main():
     # ── Sync coordinator ──────────────────────────────────────────────────────
     sync_mode = "none"
 
-    # Global transport, driven by the PLAY/STOP button -- see its handler
-    # below for exactly when it controls the sequencer, the loop, or both
-    # together (only sync_mode == "snap" links them; the clock otherwise
-    # only ever starts from sequencer focus). seq.playing and
-    # looper.transport_playing are the source of truth (no separate mirror
-    # var here); both start stopped.
-    play_stop_pressed_at = 0.0
-    # Set when a PLAY/STOP press was handled by the menu as "back": its
-    # release must be swallowed too, or a back that closes the menu (on
-    # press) would have its release read as a transport short press.
-    play_stop_swallow_up = False
+    # Global transport, driven by the PLAY/STOP button -- see toggle_transport
+    # for exactly when it controls the sequencer, the loop, or both together
+    # (only sync_mode == "snap" links them; the clock otherwise only ever
+    # starts from sequencer focus). seq.playing and looper.transport_playing
+    # are the source of truth (no separate mirror var here); both start
+    # stopped.
 
     bpm      = DEFAULT_BPM
     step_dur = step_duration(bpm)
@@ -133,9 +144,9 @@ def main():
         step_dur = step_duration(bpm)
         seq.step_dur = step_dur
 
-    # Text flash (volume readout, LOCK) over the active mode's display: it
-    # holds the text (disp.hold_text) until flash_until, while the mode
-    # keeps the LEDs.
+    # Text flash (volume readout, LOCK, an armed CLEAR) over the active
+    # mode's display: it holds the text (disp.hold_text) until flash_until,
+    # while the mode keeps the LEDs.
     flash_until = 0.0
 
     def flash(text, now, hold=_FLASH_HOLD):
@@ -144,13 +155,18 @@ def main():
         disp.show(text)
         flash_until = now + hold
 
+    def end_flash():
+        """Hand the text back to the menu or the active mode."""
+        nonlocal flash_until
+        flash_until = 0.0
+        if menu_active:
+            menu.refresh_display()
+        else:
+            disp.hold_text(False)
+            active.refresh_display()
+
     # Beat LED pulse
     beat_led_until = 0.0
-
-    # MODE gesture state
-    mode_btn_pressed_at = 0.0
-    mode_held           = False   # True while BTN_MODE is physically down
-    mode_pad_consumed   = False   # True if a pad was pressed while MODE was held
 
     # UP/DOWN volume hold-to-repeat state
     vol_held_dir  = 0     # 0 = neither held, +1 = UP held, -1 = DOWN held
@@ -168,6 +184,137 @@ def main():
             synth.set_track_volume(track, synth.track_volume(track) + direction * _VOLUME_STEP)
             volume = synth.track_volume(track)
         flash(f"V{volume:3d}", now)
+
+    # ── LOOP / SEQ ────────────────────────────────────────────────────────────
+    def switch_mode(target_index, now):
+        """Make modes[target_index] the active mode. Returns False (and
+        flashes LOCK) when that's blocked: a playing freeform loop keeps SEQ
+        locked out."""
+        nonlocal mode_index, active
+        if target_index == mode_index:
+            return True
+        target_mode = modes[target_index]
+        if sync_mode == "freeform" and looper.is_playing and target_mode is seq:
+            # Holds the text so the still-active looper's own
+            # refresh_display() (fired continuously by playback -- wraps,
+            # pad flashes) can't paint over this before the hold expires.
+            flash("LOCK", now, _LOCK_FLASH_HOLD)
+            return False
+        if sync_mode == "snap" and looper.is_playing:
+            mode_index = target_index
+            active = modes[mode_index]
+            # The new active mode takes over the LEDs (and the text, unless
+            # the menu or a flash holds it).
+            looper.set_display_owner(active is looper)
+            seq.set_display_owner(active is seq)
+        else:
+            active.exit()
+            mode_index = target_index
+            active = modes[mode_index]
+            active.enter()
+        if menu_active:
+            # The menu stays open across the switch; it keeps the text and
+            # just retargets to the new active mode.
+            menu.refresh_display()
+        else:
+            disp.show(MODE_NAMES[mode_index])
+        return True
+
+    # ── PLAY / STOP ───────────────────────────────────────────────────────────
+    def toggle_transport(now):
+        if sync_mode == "snap":
+            # Loop and sequencer are explicitly linked for this session --
+            # PLAY/STOP always controls both together, regardless of which
+            # one currently has focus.
+            playing = not seq.playing
+            seq.set_playing(playing)
+            looper.set_playing(playing, now)
+        elif active is seq:
+            # Not linked: the shared tempo clock (and the BEAT LED it
+            # drives) only ever starts from sequencer focus.
+            seq.set_playing(not seq.playing)
+        else:
+            # Not linked, LOOP has focus (freeform, or nothing recorded
+            # yet): PLAY/STOP only concerns the loop, so it can never wake
+            # the clock and accidentally lock an empty or freeform loop into
+            # a synced session the next time a layer is armed.
+            looper.set_playing(not looper.transport_playing, now)
+
+    # ── CLEAR ─────────────────────────────────────────────────────────────────
+    clear_scope    = None   # None (not armed), "channel" or "all"
+    clear_armed_at = 0.0
+    clear_until    = 0.0    # the armed clear times out here
+
+    def selected_channel():
+        return looper.active_idx if active is looper else seq.selected_track
+
+    def arm_clear(scope, now):
+        nonlocal clear_scope, clear_armed_at, clear_until
+        if clear_scope is None:
+            clear_armed_at = now
+        clear_scope = scope
+        clear_until = now + _CLEAR_TIMEOUT
+        flash("CLRA" if scope == "all" else f"CLR{selected_channel() + 1}",
+              now, _CLEAR_TIMEOUT)
+
+    def end_clear():
+        nonlocal clear_scope
+        clear_scope = None
+        end_flash()
+
+    def confirm_clear(now):
+        nonlocal clear_scope
+        if clear_scope == "all":
+            active.clear_all()
+        elif active is looper:
+            looper.clear_layer(looper.active_idx)
+        else:
+            seq.clear_track(seq.selected_track)
+        clear_scope = None
+        flash("DONE", now, _LOCK_FLASH_HOLD)
+
+    # ── The channel view ──────────────────────────────────────────────────────
+    channel_view_on = False
+    key_mode_mute   = False   # KEY MODE: False = select, True = mute
+    view_render_at  = 0.0     # next channel-view redraw
+    # Pads pressed into the channel view: their releases are its too, even
+    # if the view has closed since (a select closes it on the press).
+    view_pads = set()
+
+    def set_channel_view(on):
+        nonlocal channel_view_on, key_mode_mute, view_render_at
+        if on == channel_view_on:
+            return
+        channel_view_on = on
+        key_mode_mute   = False   # every visit starts in select
+        if on:
+            view_render_at = 0.0  # draw it this pass
+        else:
+            disp.set_pad_frame(None)
+
+    def channel_tap(pad, now):
+        """A pad tapped in the channel view."""
+        nonlocal view_render_at
+        if pad >= NUM_LOOP_LAYERS + NUM_TRACKS:
+            return
+        if pad < NUM_LOOP_LAYERS:
+            target, n = MODE_LOOPER, pad
+        else:
+            target, n = MODE_SEQUENCER, pad - NUM_LOOP_LAYERS
+        mode = modes[target]
+        if key_mode_mute:
+            mode.toggle_mute(n)
+            view_render_at = 0.0
+            return
+        if mode is looper and not looper.can_select(n):
+            flash("BUSY", now, _LOCK_FLASH_HOLD)   # another layer is recording
+            return
+        if not switch_mode(target, now):
+            return
+        mode.select_channel(n)
+        set_channel_view(False)
+        if menu_active:
+            menu.refresh_display()
 
     # ── Grooves: the menu's SAVE / LOAD (file I/O lives in groove.py) ─────────
     def capture_groove():
@@ -215,6 +362,17 @@ def main():
                     get_bpm=lambda: bpm, set_bpm=set_bpm,
                     tempo_locked=tempo_locked)
 
+    def open_menu():
+        nonlocal menu_active, flash_until, vol_held_dir
+        # The menu takes the text over from any volume flash, and an
+        # UP/DOWN still held for volume auto-repeat would otherwise keep
+        # stepping it under the menu.
+        vol_held_dir = 0
+        flash_until  = 0.0
+        disp.hold_text(True)
+        menu.enter()
+        menu_active = True
+
     def close_menu():
         nonlocal menu_active, flash_until
         menu.exit()
@@ -229,128 +387,61 @@ def main():
         now    = clock.now()
         events = hw.scan()
 
-        # ── Filter and intercept global buttons ───────────────────────────────
+        # ── Route each event: pads, then function keys ────────────────────────
+        # `filtered` collects what the active mode (or the menu) gets.
         filtered = []
         for event in events:
             etype, data, event_time = event
 
-            # ── MODE button: full gesture handling ────────────────────────────
-            if etype == BTN_DOWN and data == BTN_MODE:
-                mode_btn_pressed_at = now
-                mode_held           = True
-                mode_pad_consumed   = False
-                # Not forwarded to active mode
+            # ── Pads: the channel view's, or the active mode's ────────────────
+            if etype == PAD_DOWN and channel_view_on:
+                view_pads.add(data)
+                if clear_scope:
+                    end_clear()
+                channel_tap(data, now)
+            elif etype == PAD_UP and data in view_pads:
+                view_pads.discard(data)
+            elif etype in (PAD_DOWN, PAD_UP):
+                filtered.append(event)
 
-            elif etype == BTN_UP and data == BTN_MODE:
-                mode_held = False
-                if mode_pad_consumed:
-                    # Already acted on pad press; nothing more to do.
-                    mode_pad_consumed = False
-
-                elif now - mode_btn_pressed_at >= _MODE_LONG_PRESS:
-                    # Long press: switch global mode
-                    target_index = (mode_index + 1) % NUM_MODES
-                    target_mode  = modes[target_index]
-
-                    if sync_mode == "freeform" and looper.is_playing and target_mode is seq:
-                        # Holds the text so the still-active looper's own
-                        # refresh_display() (fired continuously by playback --
-                        # wraps, pad flashes) can't paint over this before the
-                        # hold expires; released below once flash_until fires.
-                        flash("LOCK", now, _LOCK_FLASH_HOLD)
-
-                    elif sync_mode == "snap" and looper.is_playing:
-                        mode_index = target_index
-                        active = modes[mode_index]
-                        # The new active mode takes over the LEDs (and the
-                        # text, unless the menu or a flash holds it).
-                        looper.set_display_owner(active is looper)
-                        seq.set_display_owner(active is seq)
-                        if menu_active:
-                            # Overlay stays open across the switch; it keeps the
-                            # text, it just retargets to the new active mode.
-                            menu.refresh_display()
-                        else:
-                            disp.show(MODE_NAMES[mode_index])
-
-                    else:
-                        active.exit()
-                        mode_index = target_index
-                        active = modes[mode_index]
-                        active.enter()
-                        if menu_active:
-                            menu.refresh_display()
-                        else:
-                            disp.show(MODE_NAMES[mode_index])
-
-                else:
-                    # Short press: cycle active layer / track
-                    active.cycle_channel()
+            # ── Releases: only UP/DOWN's matters (it ends auto-repeat). The
+            #    menu gets it too, to pair with the press it saw ─────────────
+            elif etype != BTN_DOWN:
+                if data in (BTN_INC, BTN_DEC):
+                    vol_held_dir = 0
                     if menu_active:
-                        menu.refresh_display()
+                        filtered.append(event)
 
-            # ── Pad while MODE held: jump to layer / track ────────────────────
-            elif etype == PAD_DOWN and mode_held:
-                active.select_channel(data)
-                mode_pad_consumed = True
-                # Suppress: don't trigger synth or record step
-                if menu_active:
-                    menu.refresh_display()
-
-            # ── PLAY/STOP button: global transport, or "back" in the menu ─────
-            elif etype == BTN_DOWN and data == BTN_PLAY_STOP:
-                if menu_active:
-                    # Acts on press -- the menu has no long press, and the
-                    # transport's 2 s clear must never fire from in here.
-                    play_stop_swallow_up = True
-                    if menu.back(event_time):
-                        close_menu()
+            # ── An armed CLEAR takes the next function key ────────────────────
+            elif clear_scope:
+                if data == BTN_MENU:
+                    confirm_clear(now)
+                elif data == BTN_CLEAR:
+                    arm_clear("all" if clear_scope == "channel" else "channel", now)
                 else:
-                    play_stop_pressed_at = now
-                # Not forwarded to active mode
+                    end_clear()   # cancelled; the key does nothing else
 
-            elif etype == BTN_UP and data == BTN_PLAY_STOP:
-                if play_stop_swallow_up or menu_active:
-                    # Release of a menu "back" (or of a press begun before
-                    # the menu opened): never a transport action.
-                    play_stop_swallow_up = False
-                elif now - play_stop_pressed_at >= _PLAY_STOP_LONG_PRESS:
-                    active.clear_all()
-                elif sync_mode == "snap":
-                    # Loop and sequencer are explicitly linked for this
-                    # session -- PLAY/STOP always controls both together,
-                    # regardless of which one currently has focus.
-                    playing = not seq.playing
-                    seq.set_playing(playing)
-                    looper.set_playing(playing, now)
-                elif active is seq:
-                    # Not linked: the shared tempo clock (and the BEAT LED
-                    # it drives) only ever starts from sequencer focus.
-                    seq.set_playing(not seq.playing)
-                else:
-                    # Not linked, LOOP has focus (freeform, or nothing
-                    # recorded yet): PLAY/STOP only concerns the loop, so
-                    # it can never wake the clock and accidentally lock an
-                    # empty or freeform loop into a synced session the
-                    # next time a layer is armed.
-                    looper.set_playing(not looper.transport_playing, now)
+            elif data == BTN_MODE:
+                if switch_mode((mode_index + 1) % NUM_MODES, now):
+                    set_channel_view(False)
 
-            # ── MENU button: open the overlay; "select" once it's open ───────
-            elif etype == BTN_DOWN and data == BTN_MENU:
+            elif data == BTN_PLAY_STOP:
+                toggle_transport(now)
+
+            elif data == BTN_MENU:
                 if menu_active:
                     filtered.append(event)
                 else:
-                    # The menu takes the text over from any volume flash,
-                    # and an UP/DOWN still held for volume auto-repeat
-                    # would otherwise keep stepping it under the menu.
-                    vol_held_dir = 0
-                    flash_until  = 0.0
-                    disp.hold_text(True)
-                    menu.enter()
-                    menu_active = True
+                    open_menu()
 
-            # ── UP/DOWN: channel volume, unless the menu owns them right now ──
-            elif etype == BTN_DOWN and data in (BTN_INC, BTN_DEC):
+            elif data == BTN_RECORD:
+                if menu_active:
+                    if menu.back(event_time):
+                        close_menu()
+                else:
+                    filtered.append(event)
+
+            elif data in (BTN_INC, BTN_DEC):
                 if menu_active:
                     filtered.append(event)
                 else:
@@ -358,35 +449,39 @@ def main():
                     vol_repeat_at = now + _VOLUME_REPEAT_DELAY
                     step_volume(vol_held_dir, now)
 
-            # ── UP/DOWN release -- consumed here so the active mode never
-            #    sees it. Still forwarded while the menu owns the buttons,
-            #    to keep it paired with the BTN_DOWN it already receives.
-            elif etype == BTN_UP and data in (BTN_INC, BTN_DEC):
-                if menu_active:
-                    filtered.append(event)
-                vol_held_dir = 0
+            elif data == BTN_VIEW:
+                set_channel_view(not channel_view_on)
 
-            else:
-                filtered.append(event)
+            elif data == BTN_KEY_MODE:
+                if channel_view_on:
+                    key_mode_mute = not key_mode_mute
+                    flash("MUT " if key_mode_mute else "SEL ", now, _LOCK_FLASH_HOLD)
+
+            elif data == BTN_CLEAR:
+                if not menu_active:
+                    arm_clear("channel", now)
+
+            elif not menu_active:
+                filtered.append(event)   # MUTE: the active mode's
 
         # ── Sync coordinator: detect looper arm while sequencer is playing ────
-        if not menu_active:
-            for event in filtered:
-                etype, data, event_time = event
-                if etype == BTN_DOWN and data == BTN_RECORD:
-                    if active is looper and looper.is_idle:
-                        if seq.playing:
-                            sync_mode = "snap"
-                            looper.set_snap_mode(True)
-                        else:
-                            sync_mode = "freeform"
-                            looper.set_snap_mode(False)
+        # (RECORD only reaches `filtered` with the menu closed.)
+        for event in filtered:
+            etype, data, event_time = event
+            if etype == BTN_DOWN and data == BTN_RECORD:
+                if active is looper and looper.is_idle:
+                    if seq.playing:
+                        sync_mode = "snap"
+                        looper.set_snap_mode(True)
+                    else:
+                        sync_mode = "freeform"
+                        looper.set_snap_mode(False)
 
         # ── Dispatch remaining events to active mode (or the menu overlay) ───
         # Each event is dispatched with its own true press/release time
         # (event_time), not this frame's `now` -- see hw.scan().
-        # Pads always go to the active mode, menu open or not; the menu gets
-        # every other event and ignores RECORD / MUTE.
+        # Pads always go to the active mode, menu open or not; with the
+        # menu open, every function key in `filtered` is the menu's.
         for event in filtered:
             etype, data, event_time = event
             mode_event = (etype, data)
@@ -400,16 +495,13 @@ def main():
             vol_repeat_at = now + _VOLUME_REPEAT_INTERVAL
             step_volume(vol_held_dir, now)
 
+        # ── An armed CLEAR left waiting gives up ──────────────────────────────
+        if clear_scope and now >= clear_until:
+            end_clear()
+
         # ── Restore display after a volume / LOCK flash ───────────────────────
         if flash_until and now >= flash_until:
-            flash_until = 0.0
-            if menu_active:
-                menu.refresh_display()
-            else:
-                # Hand the text back, letting the mode's own continuous
-                # updates paint it again.
-                disp.hold_text(False)
-                active.refresh_display()
+            end_flash()
 
         # ── Sync coordinator: frame checks ────────────────────────────────────
         if looper.was_cleared:
@@ -475,16 +567,28 @@ def main():
         # ── Synth auto-release housekeeping ──────────────────────────────────
         synth.update()
 
-        # ── Beat LED pulse (independent of mode display; drawn last so a mode's
-        #    own LED refresh above never stomps it) ────────────────────────────
+        # ── LEDs, drawn last so a mode's own LED refresh above never stomps
+        #    them: the channel view, the beat pulse, KEY MODE and CLEAR ────────
+        if channel_view_on and now >= view_render_at:
+            view_render_at = now + _VIEW_FRAME_INTERVAL
+            selected_pad = (looper.active_idx if active is looper
+                            else NUM_LOOP_LAYERS + seq.selected_track)
+            disp.set_pad_frame(channels.frame(now, selected_pad))
         disp.set_led(config.LED_BEAT, now < beat_led_until)
+        if not channel_view_on:
+            key_color = palette.OFF
+        else:
+            key_color = palette.KEY_MUTE if key_mode_mute else palette.KEY_SELECT
+        disp.set_key_color(BTN_KEY_MODE, key_color)
+        clear_on = clear_scope and int((now - clear_armed_at) * _CLEAR_BLINK_HZ * 2) % 2 == 0
+        disp.set_key_color(BTN_CLEAR, palette.ARMED_CLEAR if clear_on else palette.OFF)
         disp.update(now)   # NeoKey: send changed pixels (rate-limited)
 
 
 try:
     # Uncomment to run the hardware I/O test loop instead of the real app:
     # import io_test; io_test.run()
-  
+
     main()
 except Exception as e:
     traceback.print_exception(type(e), e, e.__traceback__)

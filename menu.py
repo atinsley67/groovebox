@@ -4,19 +4,21 @@ tempo, loop-length edits, and groove save/load.
 
 Not a top-level mode like LooperMode/SequencerMode; it's a temporary
 overlay opened by BTN_MENU, usable from either mode. It always resolves its
-target live (never a cached copy), so cycling layers/tracks with MODE, or
+target live (never a cached copy), so choosing a layer/track in the channel
+view, or
 switching LOOP<->SEQ, while it's open retargets it on the fly.
 
 It owns only the 4-char text and these keys:
   MENU       : select -- enter the highlighted item / edit the value / run
                the action
-  PLAY/STOP  : back (cancel in ASSIGN); at root, close the menu -- code.py
+  RECORD     : back (cancel in ASSIGN); at root, close the menu -- code.py
                routes it here via back()
   UP/DOWN    : move the highlight, or step the value while editing (held =
                auto-repeat)
-Everything else stays with code.py and the active mode: MODE retargets the
-menu as usual, the pads keep playing the active mode (which keeps the
-LEDs), and RECORD / MUTE do nothing while the menu is open.
+Everything else stays with code.py and the active mode: LOOP/SEQ and a
+channel-view select retarget the menu, PLAY/STOP stays the transport, the
+pads keep playing the active mode (which keeps the LEDs), and MUTE / CLEAR
+do nothing while the menu is open.
 
 Every level is a list: the display shows the highlighted item's label, and
 UP/DOWN wrap around it.
@@ -30,7 +32,7 @@ SOUND: edit the target's sound -- SEQ mode: the selected track's drum sound
   layer, editing the sound on the last pad played on that layer -- play
   another pad to switch). The list is the schema's params in order, ending
   in RST. MENU on a param edits it (UP/DOWN step it, the value shows) until
-  MENU or PLAY/STOP returns to the list. MENU on RST shows SURE, and a
+  MENU or RECORD returns to the list. MENU on RST shows SURE, and a
   second MENU restores the sound's built-in defaults. The highlight is
   remembered per schema. The target's name flashes on entry and whenever
   the target changes.
@@ -38,13 +40,13 @@ SOUND: edit the target's sound -- SEQ mode: the selected track's drum sound
 ASSIGN (LOOP only): pick the active layer's instrument. The name shows
   immediately; the sound swaps once the highlight has settled
   (_ASSIGN_SETTLE), so the loop re-instruments live as you browse without
-  building an instance per step. MENU keeps it; PLAY/STOP reverts to the
+  building an instance per step. MENU keeps it; RECORD reverts to the
   layer's original instance, SOUND edits intact. Changing layer keeps the
   pending choice for the old layer.
 
 BPM: MENU edits the tempo, shown as "b120" (code.py's set_bpm, so the clock
   re-anchors without a jump). While code.py's tempo_locked() holds, it
-  flashes LOCK and the value can't change. MENU or PLAY/STOP returns.
+  flashes LOCK and the value can't change. MENU or RECORD returns.
 
 EXTEND / MIRROR (LOOP only): run in place from root -- see
   LooperMode.extend_loop / mirror_active_layer. "N/A " if they can't run.
@@ -149,7 +151,7 @@ class MenuMode:
         self._held_button = None
 
     def back(self, now):
-        """PLAY/STOP pressed. Returns True if the menu should close (pressed
+        """RECORD pressed. Returns True if the menu should close (pressed
         at root); otherwise steps back one level, cancelling ASSIGN."""
         self._held_button = None
         self._msg_until   = 0.0
@@ -202,7 +204,7 @@ class MenuMode:
 
     def refresh_display(self):
         """Called by code.py after anything that may have retargeted the
-        menu (MODE layer/track changes, LOOP<->SEQ switches)."""
+        menu (layer/track changes, LOOP<->SEQ switches)."""
         self._sync_assign_target()
         self._refresh_display()
 
@@ -292,7 +294,7 @@ class MenuMode:
 
     def _target_ident(self):
         """What SOUND is editing, cheaply enough to poll every frame:
-        (schema key, ...where). Changes on MODE, LOOP<->SEQ, or a pad played
+        (schema key, ...where). Changes on a layer/track change, LOOP<->SEQ, or a pad played
         on a kit layer."""
         if not self._loop_active():
             return ("drum", "track", self._seq.selected_track)
@@ -393,7 +395,7 @@ class MenuMode:
             self._assign_original = None
 
     def _sync_assign_target(self):
-        """ASSIGN follows the active layer: a layer change (MODE, handled by
+        """ASSIGN follows the active layer: a layer change (the channel view, handled by
         code.py) keeps the old layer's pending choice and starts over on the
         new one; leaving LOOP mode keeps it and returns to root."""
         if self._section != _ASSIGN:

@@ -89,7 +89,7 @@ Snap-to-bar sync:
 """
 
 import keymap
-from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, BTN_UP, TICK
+from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, TICK
 from config import (BTN_RECORD, BTN_MUTE,
                     MAX_LOOP_EVENTS, NUM_LOOP_LAYERS, NUM_PADS, STEPS_PER_BAR)
 
@@ -101,7 +101,6 @@ _PLAYING   = "PLY "
 _OVERDUB   = "DUB "
 _MUTED     = "MUTE"
 
-_LONG_PRESS_MUTE = 0.6   # seconds: clear active layer
 _FLASH_DURATION  = 0.08  # seconds: how long a pad LED stays lit after firing
 
 _COUNTDOWN_STEPS  = 3                          # numbered flashes before REC ("ARM3".."ARM1")
@@ -187,6 +186,9 @@ class LooperMode:
         self._held_mask   = 0
         self._flash_mask  = 0
         self._flash_until = 0.0
+        # When each layer last played a note (live or playback), for the
+        # channel view's activity flash.
+        self._played_at = [-1.0] * NUM_LOOP_LAYERS
 
         # Recording state (applies to whichever layer is being recorded)
         self._rec_state = _IDLE
@@ -227,9 +229,6 @@ class LooperMode:
         # played before" differently from an actual resume (see there).
         self._transport_playing = False
         self._paused_at         = None
-
-        # Long-press timestamps
-        self._mute_at = 0.0
 
         # Ownership must be explicitly claimed via enter()/set_display_owner
         # -- never assumed at construction, since code.py only ever hands
@@ -289,22 +288,50 @@ class LooperMode:
     def refresh_display(self):
         self._refresh_display()
 
-    # ── Channel navigation (called by code.py MODE gesture handler) ───────────
+    # ── Channels (called by code.py for the channel view and CLEAR) ───────────
 
-    def cycle_channel(self):
-        if self._rec_state == _RECORDING:
-            return   # don't switch layers mid-recording
-        self._active_idx = (self._active_idx + 1) % NUM_LOOP_LAYERS
-        self._flash_mask = 0
-        self._refresh_display()
+    def can_select(self, n):
+        """False while recording on another layer: you can't change layer
+        mid-recording."""
+        return self._rec_state != _RECORDING or n == self._active_idx
 
     def select_channel(self, n):
-        if self._rec_state == _RECORDING:
+        if not self.can_select(n):
             return
         if 0 <= n < NUM_LOOP_LAYERS:
             self._active_idx = n
             self._flash_mask = 0
             self._refresh_display()
+
+    def channel_status(self, idx):
+        """Layer `idx` for the channel view: "rec" (recording or
+        overdubbing), "armed" (armed or counting in), "muted", "content" or
+        "empty"."""
+        layer = self._layers[idx]
+        if idx == self._active_idx:
+            if self._rec_state == _RECORDING:
+                return "rec"
+            if self._rec_state in (_ARMED, _COUNTDOWN):
+                return "armed"
+        if layer.state == _OVERDUB:
+            return "rec"
+        if layer.state == _MUTED:
+            return "muted"
+        if layer.state == _IDLE:
+            return "empty"
+        return "content"
+
+    def played_at(self, idx):
+        """When layer `idx` last played a note."""
+        return self._played_at[idx]
+
+    def toggle_mute(self, idx):
+        self._toggle_mute(self._layers[idx])
+        self._refresh_display()
+
+    def clear_layer(self, idx):
+        self._clear_layer(idx)
+        self._refresh_display()
 
     # ── Sync coordinator interface ────────────────────────────────────────────
 
@@ -329,6 +356,7 @@ class LooperMode:
             pad = data
             self._synth.trigger_layer_pad(self._active_idx, pad)
             self._held_mask |= (1 << pad)
+            self._played_at[self._active_idx] = now
             layer.last_pad = pad
 
             needs_release = self._needs_release(self._active_idx, pad)
@@ -433,14 +461,7 @@ class LooperMode:
             if data == BTN_RECORD:
                 self._handle_record(now)
             elif data == BTN_MUTE:
-                self._mute_at = now
-
-        elif etype == BTN_UP:
-            if data == BTN_MUTE:
-                if now - self._mute_at >= _LONG_PRESS_MUTE:
-                    self._clear_layer(self._active_idx)
-                else:
-                    self._toggle_mute(layer)
+                self._toggle_mute(layer)
 
         self._refresh_display()
 
@@ -530,6 +551,7 @@ class LooperMode:
             self._release_pad(idx, pad)
         for idx, pad in triggered:
             self._synth.trigger_layer_pad(idx, pad)
+            self._played_at[idx] = now
         for idx, pad in released:
             self._release_pad(idx, pad)
 

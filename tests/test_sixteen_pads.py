@@ -16,7 +16,7 @@ import keymap
 import palette
 import sound_presets
 import synth_params
-from config import BTN_MENU, BTN_INC, BTN_RECORD, BTN_MODE, BTN_PLAY_STOP
+from config import BTN_MENU, BTN_INC, BTN_RECORD, BTN_MODE, BTN_PLAY_STOP, BTN_VIEW
 from harness import Harness, run
 from synth_engine import SynthEngine
 
@@ -137,11 +137,8 @@ class LooperSixteenPadTest(unittest.TestCase):
 
     def test_melodic_layer_records_its_notes(self):
         def scenario(h):
-            h.down(BTN_MODE)                              # MODE + pad 2: layer 2 (BASS)
-            yield 0.02
+            yield from h.tap(BTN_VIEW)                    # channel view: layer 2 (BASS)
             yield from h.pad_tap(BASS_LAYER)
-            h.up(BTN_MODE)
-            yield 0.03
             voice = h.synth._channels[BASS_LAYER]["data"]
             yield from h.tap(BTN_RECORD)
             h.pad_down(3)                                 # top right: 3 octaves up
@@ -236,7 +233,7 @@ class GrooveVersionTest(unittest.TestCase):
         def scenario(h):
             yield from load_slot(h, 0)
             yield 0.7
-            yield from h.tap(BTN_PLAY_STOP)               # close the menu
+            yield from h.tap(BTN_RECORD)                  # close the menu
             groove.save(1, h.menu._capture_groove())
             with open(f"{h.groove_dir}/slot2.json") as f:
                 assert json.load(f)["v"] == groove.VERSION == 2

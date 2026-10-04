@@ -2,30 +2,42 @@
 
 ## Layout
 
-All 16 keys of the 4x4 grid are pads, numbered 1–16 here, row by row from the top left (pads 1–4 on the top row, 13–16 on the bottom row). What each pad plays is under *LOOP mode* and *SEQ mode* below.
+All 16 keys of the 4x4 grid are pads, numbered 1–16 here, row by row from the top left (pads 1–4 on the top row, 13–16 on the bottom row). What they do depends on the view (see *VIEW — the channel view* below); in each mode's own view, what each pad plays is under *LOOP mode* and *SEQ mode*.
 
 The function keys, as the 2x5 block stands:
 
 | | Left | Right |
 |---|---|---|
-| Row 1 | MODE | UP |
-| Row 2 | MENU | DOWN |
-| Row 3 | RECORD | PLAY/STOP |
-| Row 4 | MUTE | VIEW (not used yet) |
-| Row 5 | — | — |
+| Row 1 | LOOP/SEQ | PLAY/STOP |
+| Row 2 | MENU | UP |
+| Row 3 | RECORD | DOWN |
+| Row 4 | VIEW | KEY MODE |
+| Row 5 | MUTE | CLEAR |
 
-Every key has a light. A pad lights blue while it's sounding (or, in SEQ mode, while its step is on). RECORD lights red while recording. PLAY/STOP is dim green while playing and flashes bright green on each beat while the sequencer runs.
+Every key does one thing, the moment you press it. There are no long presses; only UP / DOWN repeat while held.
+
+Every key has a light:
+- **Pads:** blue while sounding (or, in SEQ mode, while their step is on). The channel view has its own colors.
+- **RECORD:** red while recording.
+- **PLAY/STOP:** dim green while playing, flashing bright green on each beat while the sequencer runs.
+- **KEY MODE:** in the channel view, white for select and grey for mute.
+- **CLEAR:** blinks orange while a clear waits for you to confirm it.
 
 The layout can be changed in `config.py` (`FUNC_LAYOUT`); see `HARDWARE.md`.
 
-## Global (always active)
+## The function keys
 
-| Button | Short press | Long press | Hold + pad |
-|---|---|---|---|
-| MODE | Cycle active layer / track | Switch between LOOP and SEQ modes (0.6 s) | Jump to that layer / track (pads 1–8) |
-| PLAY/STOP | Play / pause (see below for what it controls) | Clear the active mode (hold 2 s) | — |
-| UP / DOWN | Volume of the active layer (LOOP) or selected track (SEQ), 5% a step (hold to repeat) | — | — |
-| MENU | Open the menu | — | — |
+| Key | Menu closed | Menu open |
+|---|---|---|
+| LOOP/SEQ | Switch between LOOP and SEQ modes | Same; the menu follows |
+| PLAY/STOP | Play / pause (see below for what it controls) | Same |
+| MENU | Open the menu; confirm a CLEAR | Select |
+| RECORD | Record (see *LOOP mode*) | Back one level; at the top, close the menu |
+| UP / DOWN | Volume of the active layer (LOOP) or selected track (SEQ), 5% a step | Move the highlight, or step a value |
+| VIEW | Switch the pads between the mode's own view and the channel view | Same |
+| KEY MODE | In the channel view: what a pad tap does (select / mute) | Same |
+| MUTE | Mute / unmute the active layer or selected track | Nothing |
+| CLEAR | Clear the active layer or selected track, or everything (see below) | Nothing |
 
 **Volume:** every loop layer and every sequencer track has its own volume, 0–100% (it starts at 100%). The display shows the new level for a moment (`V 80`). A layer keeps its volume when you give it a different instrument, and grooves save every volume.
 
@@ -38,7 +50,39 @@ Resuming always restarts from the top, so synced parts come back in step. Cleari
 
 The BPM is set in the menu (`BPM `). **It's locked** (the menu shows `LOCK`) while a synced session has any loop content (or a take is counting in or recording), and while a free-form loop has any layer playing (even when paused). **Switching to SEQ** is also blocked (`LOCK`) under that same free-form condition.
 
-PLAY/STOP flashes on each beat while the sequencer's clock runs.
+### CLEAR
+
+CLEAR never clears straight away:
+
+1. **CLEAR** picks the active layer (LOOP) or selected track (SEQ). The display shows `CLR3` (channel 3), and CLEAR blinks orange.
+2. **CLEAR again** switches to every layer, or every track (`CLRA`). Pressing it again goes back to the one channel.
+3. **MENU** confirms (`DONE`). Clearing a track also unmutes it.
+
+Any other function key cancels, and does nothing else (so PLAY/STOP won't also stop playback). Doing nothing for 3 seconds cancels too. The pads keep playing while CLEAR waits; tapping a pad in the channel view cancels it.
+
+---
+
+## VIEW — the channel view
+
+VIEW switches the pads between the mode's own view (playing notes in LOOP, steps in SEQ) and the **channel view**, which shows every channel at once:
+
+| | |
+|---|---|
+| Pads 1–8 (top two rows) | Loop layers 1–8 |
+| Pads 9–16 (bottom two rows) | Sequencer tracks 1–8 |
+
+| Color | Means |
+|---|---|
+| Off | Empty |
+| Dim blue | Has something in it |
+| Dim grey | Muted |
+| Bright blue flash | A note just played on it |
+| Red | Recording or overdubbing (blinking: armed or counting in) |
+| Slow pulse | The selected channel |
+
+In the channel view, the pads don't play anything. **KEY MODE** picks what a tap does; the view always opens in select, and the KEY MODE key shows which:
+- **Select (white):** the tap chooses that layer or track and takes you straight back to its own view, ready to play. Choosing a track from LOOP (or a layer from SEQ) switches modes too. If that's blocked, `LOCK` shows; choosing another layer while one is recording shows `BUSY`. Either way you stay in the channel view.
+- **Mute (grey):** the tap mutes or unmutes that channel, and you stay in the view, so you can mix a groove live.
 
 ---
 
@@ -49,11 +93,11 @@ MENU opens the menu. It works in either mode, and the loop or pattern keeps play
 | Control | In the menu |
 |---|---|
 | MENU | Select: enter the highlighted item, edit the value, or run the action |
-| PLAY/STOP | Back one level; at the top, close the menu |
+| RECORD | Back one level; at the top, close the menu |
 | UP / DOWN | Move the highlight, or step a value while editing (hold to repeat) |
-| MODE | Unchanged: change layer, track or mode, and the menu follows |
-| Pads | Unchanged: they keep playing the active mode, and their lights keep showing it |
-| RECORD, MUTE | Do nothing while the menu is open |
+| PLAY/STOP, LOOP/SEQ, VIEW, KEY MODE | Unchanged; the menu follows a change of mode, layer or track |
+| Pads | Unchanged: they keep playing the active mode (or the channel view), and their lights keep showing it |
+| MUTE, CLEAR | Do nothing while the menu is open |
 
 Every part of the menu is a list. The display shows the highlighted item, and UP / DOWN wrap around from the last item to the first.
 
@@ -73,7 +117,7 @@ A LOOP-only item shows `N/A ` in SEQ mode, or if it can't run right now.
 
 ### BPM — tempo
 
-MENU starts editing: UP / DOWN change the BPM by 1 (hold to repeat; range 40–300), shown as `b120`. MENU or PLAY/STOP finishes. If the tempo is locked (see *Global* above), `LOCK` shows first, then the current BPM, which can't be changed.
+MENU starts editing: UP / DOWN change the BPM by 1 (hold to repeat; range 40–300), shown as `b120`. MENU or RECORD finishes. If the tempo is locked (see *The function keys* above), `LOCK` shows first, then the current BPM, which can't be changed.
 
 ### SND — sound editing
 
@@ -88,12 +132,12 @@ The name of the sound being edited shows first, then the list of its parameters:
 | Action | Result |
 |---|---|
 | UP / DOWN | Move through the parameters (their names show) |
-| MENU on a parameter | Edit it: UP / DOWN change the value, which shows while you edit. MENU or PLAY/STOP goes back to the list |
-| MENU on `RST ` | Shows `SURE`; MENU again restores this sound's original settings (PLAY/STOP cancels) |
+| MENU on a parameter | Edit it: UP / DOWN change the value, which shows while you edit. MENU or RECORD goes back to the list |
+| MENU on `RST ` | Shows `SURE`; MENU again restores this sound's original settings (RECORD cancels) |
 
 The menu remembers which parameter you were on, separately for melodic voices and drum sounds, so a repeat tweak is one press away.
 
-**On a kit layer** you edit the sound of the last pad you played on that layer. Play another pad to edit that one instead: its name flashes. The name also flashes when MODE moves you to another layer or track.
+**On a kit layer** you edit the sound of the last pad you played on that layer. Play another pad to edit that one instead: its name flashes. The name also flashes when you choose another layer or track.
 
 **Melodic voices**, in list order:
 
@@ -133,7 +177,7 @@ The menu remembers which parameter you were on, separately for melodic voices an
 The list starts on the layer's current instrument: `KIT `, `BASS`, `REES`, `ACID`, `STAB`, `PLUK`, `HOOV`, `PAD `.
 
 - **Browse:** the name shows right away. The sound switches once you stop on it for a moment, so what's already recorded plays on the new instrument live while you browse. You can also play the pads to try it.
-- **Keep or undo:** MENU keeps the choice. PLAY/STOP puts the original instrument back, with its sound edits intact.
+- **Keep or undo:** MENU keeps the choice. RECORD puts the original instrument back, with its sound edits intact.
 - **Defaults:** layer 1 is `KIT `, and layers 2–8 are `BASS` through `PAD ` in order.
 
 ### EXT / MIRR — loop length (LOOP only)
@@ -193,7 +237,7 @@ The display shows the active layer (`L1` … `L8`) when it's empty or playing. O
 
 RECORD lights red while recording, and PLAY/STOP green while the loop is audibly playing.
 
-There are **8 layers**, all sharing one loop length. Use MODE to move between them; you can't change layer mid-recording.
+There are **8 layers**, all sharing one loop length. Choose one in the channel view (VIEW, then tap its pad); you can't change layer mid-recording.
 
 ### What the pads play
 
@@ -234,11 +278,12 @@ RECORD does nothing on a muted layer.
 
 ### Layer control
 
-| Button | Short press | Long press |
-|---|---|---|
-| MUTE | Mute / unmute the active layer (it rejoins in time) | Clear the active layer (hold 0.6 s) |
-| PLAY/STOP | Pause / resume | Clear **all** layers (hold 2 s) |
-| UP / DOWN | The active layer's volume | — |
+| Key | Does |
+|---|---|
+| MUTE | Mute / unmute the active layer (it rejoins in time) |
+| CLEAR | Clear the active layer; CLEAR twice: **all** layers (MENU confirms) |
+| PLAY/STOP | Pause / resume |
+| UP / DOWN | The active layer's volume |
 
 ---
 
@@ -250,10 +295,12 @@ The display shows the selected track (`T1` … `T8`). Tracks 1–8 play the kit'
 |---|---|
 | Pads 1–16 | Toggle that step of the bar (pad 1 = step 1, read row by row) for the selected track, and preview its sound |
 | RECORD | Nothing |
-| PLAY/STOP | Start / stop the sequencer (hold 2 s: clear all tracks) |
-| MODE | Cycle the selected track (MODE + pad 1–8 jumps to it) |
-| MUTE | Mute / unmute the selected track (hold 0.6 s: clear its steps) |
+| PLAY/STOP | Start / stop the sequencer |
+| MUTE | Mute / unmute the selected track |
+| CLEAR | Clear the selected track's steps; CLEAR twice: **all** tracks (MENU confirms) |
 | UP / DOWN | The selected track's volume |
+
+Choose a track in the channel view (VIEW, then tap its pad on the bottom two rows).
 
 The pad lights show the selected track's steps for the whole bar, and the step being played is always lit.
 
@@ -262,10 +309,10 @@ The pad lights show the selected track's steps for the whole bar, and the step b
 ## Using both together
 
 1. Build a pattern in SEQ mode and start it with PLAY/STOP.
-2. Long-press MODE to switch to LOOP.
+2. Press LOOP/SEQ to switch to LOOP.
 3. Press RECORD. The loop counts in to the next bar and records in time with the sequencer.
 4. Press RECORD to finish. The loop ends on a bar line, and both keep playing.
-5. Add more layers: move to an empty layer (MODE, or MODE + pad) and record on it.
-6. Long-press MODE to go back to SEQ at any time. Both keep playing, and PLAY/STOP now controls both.
+5. Add more layers: choose an empty layer in the channel view (VIEW, then its pad) and record on it.
+6. Press LOOP/SEQ to go back to SEQ at any time (or choose a track in the channel view). Both keep playing, and PLAY/STOP now controls both.
 
-If the sequencer *isn't* running when you record the first layer, the loop is free-form. SEQ mode and the tempo stay locked until you clear it (hold PLAY/STOP for 2 s in LOOP mode) or mute every layer.
+If the sequencer *isn't* running when you record the first layer, the loop is free-form. SEQ mode and the tempo stay locked until you clear it (CLEAR twice, then MENU, in LOOP mode) or mute every layer.

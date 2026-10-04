@@ -22,9 +22,10 @@ import config
 NUM_PAD_KEYS  = len(config.PAD_ROW_PINS) * len(config.PAD_COL_PINS)
 NUM_FUNC_KEYS = len(config.FUNC_ROW_PINS) * len(config.FUNC_COL_PINS)
 
-# Buttons the app can't work without: each must be somewhere in FUNC_LAYOUT.
+# Every button has a job: each must be somewhere in FUNC_LAYOUT, once.
 _REQUIRED_BUTTONS = (config.BTN_MODE, config.BTN_RECORD, config.BTN_PLAY_STOP,
-                     config.BTN_INC, config.BTN_DEC, config.BTN_MUTE, config.BTN_MENU)
+                     config.BTN_INC, config.BTN_DEC, config.BTN_MUTE, config.BTN_MENU,
+                     config.BTN_VIEW, config.BTN_KEY_MODE, config.BTN_CLEAR)
 
 
 def _flat(name, rows, count):

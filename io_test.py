@@ -44,6 +44,8 @@ _BTN_NAMES = {
     config.BTN_MUTE:       "MUTE",
     config.BTN_MENU:       "MENU",
     config.BTN_VIEW:       "VIEW",
+    config.BTN_KEY_MODE:   "KMOD",
+    config.BTN_CLEAR:      "CLR ",
 }
 
 
