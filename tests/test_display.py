@@ -1,9 +1,13 @@
-"""DisplayManager: the text goes out once per change, and hold_text()."""
+"""DisplayManager: the text goes out once per change, hold_text(), and the
+pad frames / key colors."""
 
 import unittest
 
 import fakes  # noqa: F401  (installs the CircuitPython fakes first)
 
+import config
+import keymap
+import palette
 from display import DisplayManager
 
 
@@ -21,41 +25,50 @@ class DisplayTextTest(unittest.TestCase):
         self.assertEqual(self.seg.writes, writes + 1)   # unchanged: not sent
 
     def test_mode_redraws_skip_unchanged_text(self):
-        state = dict(steps_mask=0, playhead_step=-1, is_playing=True,
-                     selected_track=0)
-        self.disp.show_sequencer_state(**state)
+        self.disp.show_sequencer_state(0)
         writes = self.seg.writes
-        for step in range(16):  # playhead moving: LEDs change, text doesn't
-            self.disp.show_sequencer_state(**dict(state, playhead_step=step))
+        for _ in range(16):     # every step redraws: the text doesn't change
+            self.disp.show_sequencer_state(0)
         self.assertEqual(self.seg.writes, writes)
-        self.disp.show_sequencer_state(**dict(state, selected_track=1))
+        self.disp.show_sequencer_state(1)
         self.assertEqual(self.seg.text, "T2  ")
         self.assertEqual(self.seg.writes, writes + 1)
 
-    def test_pad_bits_and_status_bits_are_separate(self):
-        import config
-        self.disp.set_led(config.LED_BEAT, True)
-        self.disp.show_sequencer_state(steps_mask=0xFF00, playhead_step=-1,
-                                       is_playing=False, selected_track=0)
-        state = self.disp._led_state
-        self.assertEqual(state & 0xFFFF, 0xFF00)         # pads 8-15
-        self.assertFalse(state & (1 << config.LED_RECORD))
-        self.assertFalse(state & (1 << config.LED_PLAY))
-        self.assertTrue(state & (1 << config.LED_BEAT))  # left alone
-        self.disp.show_looper_state(1 << 15, "REC ", 0)
-        state = self.disp._led_state
-        self.assertEqual(state & 0xFFFF, 1 << 15)
-        self.assertTrue(state & (1 << config.LED_RECORD))
-
-    def test_held_text_only_updates_leds(self):
+    def test_held_text_is_left_alone(self):
         self.disp.hold_text(True)
         self.disp.show("V 80")
-        self.disp.show_looper_state(0b101, "PLY ", 0, layer_num=1)
+        self.disp.show_looper_state("PLY ", layer_num=1)
         self.assertEqual(self.seg.text, "V 80")
-        self.assertTrue(self.disp._led_state & 0b101)
         self.disp.hold_text(False)
-        self.disp.show_looper_state(0b101, "PLY ", 0, layer_num=1)
+        self.disp.show_looper_state("PLY ", layer_num=1)
         self.assertEqual(self.seg.text, "L1  ")
+
+    def test_looper_text(self):
+        self.disp.show_looper_state("REC ", layer_num=2)
+        self.assertEqual(self.seg.text, "REC ")
+        self.disp.show_looper_state("REC ", layer_num=2, synced=True)
+        self.assertEqual(self.seg.text, "SREC")
+
+
+class DisplayLightsTest(unittest.TestCase):
+    def setUp(self):
+        self.disp = DisplayManager(object())
+        self.pads = self.disp.pixels._pads.pixels
+        self.func = self.disp.pixels._func.pixels
+
+    def test_frames_and_key_colors(self):
+        frame = [palette.OFF] * config.NUM_PADS
+        frame[15] = palette.LIVE
+        self.disp.set_pad_frame(frame)
+        self.disp.set_key_color(config.BTN_CLEAR, palette.ARMED_CLEAR)
+        self.disp.update()
+        self.assertEqual(self.pads.shown[keymap.PAD_PIXEL[15]], palette.LIVE)
+        self.assertEqual(self.pads.shown[keymap.PAD_PIXEL[0]], palette.OFF)
+        self.assertEqual(self.func.shown[keymap.FUNC_PIXEL_OF_BUTTON[config.BTN_CLEAR]],
+                         palette.ARMED_CLEAR)
+        self.disp.clear_leds()
+        self.disp.update()
+        self.assertEqual(set(self.pads.shown) | set(self.func.shown), {palette.OFF})
 
 
 if __name__ == "__main__":

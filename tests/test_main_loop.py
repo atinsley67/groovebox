@@ -10,11 +10,12 @@ import unittest
 
 import fakes  # noqa: F401  (installs the CircuitPython fakes first)
 
+import palette
 from harness import Harness, run
 from config import (BTN_MENU, BTN_PLAY_STOP, BTN_INC, BTN_DEC, BTN_RECORD,
                     BTN_MUTE, BTN_MODE, BTN_VIEW, BTN_CLEAR, NUM_LOOP_LAYERS)
 
-ROOT_LABELS = ["SND ", "ASGN", "BPM ", "EXT ", "MIRR", "SAVE", "LOAD"]
+ROOT_LABELS = ["SND ", "ASGN", "BPM ", "EXT ", "MIRR", "SAVE", "LOAD", "AUT "]
 MSG = 0.7   # just past the menu's _MSG_DURATION
 
 
@@ -60,7 +61,7 @@ class MenuNavigationTest(unittest.TestCase):
             assert seen == ROOT_LABELS, seen
             assert h.text == "SND "
             yield from h.tap(BTN_DEC)
-            assert h.text == "LOAD"
+            assert h.text == "AUT "
             yield from h.tap(BTN_RECORD)             # close from root
             assert h.text == "L1  ", h.text
             assert h.looper._rec_state == "IDLE"    # the back press doesn't arm
@@ -111,11 +112,11 @@ class PadsUnderMenuTest(unittest.TestCase):
             h.pad_down(2)
             yield 0.02
             assert h.synth._synth.press_log.count(note) == presses + 1
-            assert h.led(2), "the looper keeps the pad LEDs"
+            assert h.pad_color(2) == palette.LIVE, "the looper keeps the pad lights"
             assert h.text == "SND ", "the menu keeps the text"
             h.pad_up(2)
             yield 0.02
-            assert not h.led(2)
+            assert h.pad_color(2) != palette.LIVE
         run(scenario)
 
     def test_pads_toggle_steps_in_seq(self):
@@ -124,7 +125,7 @@ class PadsUnderMenuTest(unittest.TestCase):
             yield from h.tap(BTN_MENU)
             yield from h.pad_tap(3)
             assert h.seq._grid[0][3]
-            assert h.led(3)
+            assert h.pad_color(3) == palette.HAS_CONTENT
             assert h.text == "SND "
             yield from h.tap(BTN_RECORD)
             assert h.text == "T1  "
@@ -285,7 +286,7 @@ class ChannelVolumeTest(unittest.TestCase):
             assert h.text == "V 95"
             h.pad_down(1)                       # LEDs stay live under the flash
             yield 0.02
-            assert h.led(1) and h.text == "V 95"
+            assert h.pad_color(1) == palette.LIVE and h.text == "V 95"
             h.pad_up(1)
             yield 1.1
             assert h.text == "L1  ", h.text

@@ -6,11 +6,6 @@ FUNC_PIXEL_PIN), capped at config.PIXEL_BRIGHTNESS.
 Colors are buffered and pushed by update(): a strip is only sent when one
 of its pixels changed, at most every _PUSH_INTERVAL -- each send briefly
 blocks the main loop, and LED changes can come many times a frame.
-
-show_mask() is the compatibility layer behind DisplayManager's LED
-bitmask, so the modes drive the pixels unchanged: LEDs 0..NUM_PADS-1 light
-pads in PLAYBACK blue, LED_RECORD the RECORD key, and LED_PLAY + LED_BEAT
-share the PLAY/STOP key (dim green while playing, full green on the beat).
 """
 
 import neopixel
@@ -20,10 +15,6 @@ import keymap
 import palette
 
 _PUSH_INTERVAL = 1 / 60   # seconds: at most ~60 sends per second per strip
-
-_RECORD_BIT = 1 << config.LED_RECORD
-_PLAY_BIT   = 1 << config.LED_PLAY
-_BEAT_BIT   = 1 << config.LED_BEAT
 
 
 class _Strip:
@@ -72,23 +63,6 @@ class PixelLeds:
     def set_raw(self, strip_name, pixel, color):
         """For io_test.py: color a pixel by its index on "pad" or "func"."""
         (self._pads if strip_name == "pad" else self._func).set(pixel, color)
-
-    # ── Compatibility with the LED bitmask ────────────────────────────────────
-
-    def show_mask(self, mask, pads=True):
-        """pads=False: only the status keys (a pad frame owns the pads)."""
-        if pads:
-            for pad in range(config.NUM_PADS):
-                self.set_pad(pad, palette.PLAYBACK if mask & (1 << pad) else palette.OFF)
-        self.set_button(config.BTN_RECORD,
-                        palette.RECORDING if mask & _RECORD_BIT else palette.OFF)
-        if mask & _BEAT_BIT:
-            play = palette.BEAT
-        elif mask & _PLAY_BIT:
-            play = palette.PLAYING
-        else:
-            play = palette.OFF
-        self.set_button(config.BTN_PLAY_STOP, play)
 
     # ── Sending ───────────────────────────────────────────────────────────────
 

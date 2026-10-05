@@ -16,12 +16,19 @@ The function keys, as the 2x5 block stands:
 
 Every key does one thing, the moment you press it. There are no long presses; only UP / DOWN repeat while held.
 
-Every key has a light:
-- **Pads:** blue while sounding (or, in SEQ mode, while their step is on). The channel view has its own colors.
-- **RECORD:** red while recording.
-- **PLAY/STOP:** dim green while playing, flashing bright green on each beat while the sequencer runs.
-- **KEY MODE:** in the channel view, white for select and grey for mute.
-- **CLEAR:** blinks orange while a clear waits for you to confirm it.
+Every key has a light. Each color means the same thing everywhere: **red** is recording, **yellow** your own playing, **blue** notes and content, **grey** muted, **white** the playhead or a key held down. Dim means "there's something here", bright means "sounding now".
+
+The pads show the current view (see *LOOP mode*, *SEQ mode* and *VIEW — the channel view*). The function keys:
+
+| Key | Light |
+|---|---|
+| PLAY/STOP | Off: stopped. Steady green: a free-form loop playing. Green flashing on each beat: the sequencer's clock running |
+| RECORD | Red: recording or overdubbing. Blinking red: armed or counting in. In either mode |
+| MUTE | Grey: the active layer or selected track is muted |
+| LOOP/SEQ | Cyan in LOOP, purple in SEQ |
+| KEY MODE | In the channel view: white for select, grey for mute |
+| CLEAR | Blinking orange while a clear waits for you to confirm it |
+| MENU, UP, DOWN, VIEW | White while held |
 
 The layout can be changed in `config.py` (`FUNC_LAYOUT`); see `HARDWARE.md`.
 
@@ -78,7 +85,6 @@ VIEW switches the pads between the mode's own view (playing notes in LOOP, steps
 | Dim grey | Muted |
 | Bright blue flash | A note just played on it |
 | Red | Recording or overdubbing (blinking: armed or counting in) |
-| Slow pulse | The selected channel |
 
 In the channel view, the pads don't play anything. **KEY MODE** picks what a tap does; the view always opens in select, and the KEY MODE key shows which:
 - **Select (white):** the tap chooses that layer or track and takes you straight back to its own view, ready to play. Choosing a track from LOOP (or a layer from SEQ) switches modes too. If that's blocked, `LOCK` shows; choosing another layer while one is recording shows `BUSY`. Either way you stay in the channel view.
@@ -112,8 +118,24 @@ Every part of the menu is a list. The display shows the highlighted item, and UP
 | `MIRR` | Copy the layer's first half over its second | LOOP only |
 | `SAVE` | Save the groove | LOOP and SEQ |
 | `LOAD` | Load a groove | LOOP and SEQ |
+| `AUT ` | Switch AUTO, the mute arranger, on or off (`AUT*` while it runs) | LOOP and SEQ |
 
-A LOOP-only item shows `N/A ` in SEQ mode, or if it can't run right now.
+A LOOP-only item shows `N/A ` in SEQ mode, or if it can't run right now. `AUT ` is the last item, so it's one DOWN from the top.
+
+### AUT — let the groove arrange itself
+
+AUTO varies your groove by muting and unmuting channels for you, the way you might by hand in the channel view:
+
+- **Mostly small changes:** at each phrase, one channel mutes or unmutes (two, now and then). Muted channels are three times as likely to come back as playing ones are to drop out, so the mix keeps drifting back toward about three quarters of the channels playing. It never thins below a third of them.
+- **Now and then, a breakdown and a drop:** the mix falls to a third of the channels in one go. One or two 8-bar blocks later, everything comes back at once. In between, the small changes mostly bring channels back, so it builds toward the drop.
+- **A word flashes with each change**, for the feeling that something's happening. It doesn't mean anything (`WUBZ`, `FLUX`, `SKRT`…); breakdowns get their own (`DEEP`, `HUSH`…), and so do drops (`BOOM`, `SLAM`…).
+
+The details:
+- **Phrases:** changes only happen at the start of a phrase. With the sequencer running (or a synced loop), phrases fill 8-bar blocks: usually 8 bars, often 4 + 4, sometimes 2 + 2 + 4. Two-channel changes, breakdowns and drops only happen at the start of a block, on an 8-bar line. Switched on mid-way, AUTO waits for the next 8-bar line. A free-form loop counts loop passes instead: a phrase is one or two passes.
+- **Every channel with something in it** takes part, whether or not it was muted when you switched AUTO on, but never a layer you're recording or overdubbing. Every channel is treated alike, whatever it plays.
+- **Mute or unmute by hand** whenever you like: AUTO just carries on from there (so it may bring back a channel you muted).
+- **Switching it off** leaves the mutes as they are, so you can carry on by hand.
+- AUTO isn't saved with grooves.
 
 ### BPM — tempo
 
@@ -235,8 +257,6 @@ The display shows the active layer (`L1` … `L8`) when it's empty or playing. O
 | `DUB ` | Overdubbing |
 | `MUTE` | Muted |
 
-RECORD lights red while recording, and PLAY/STOP green while the loop is audibly playing.
-
 There are **8 layers**, all sharing one loop length. Choose one in the channel view (VIEW, then tap its pad); you can't change layer mid-recording.
 
 ### What the pads play
@@ -253,6 +273,17 @@ There are **8 layers**, all sharing one loop length. Choose one in the channel v
 (House kick, DnB kick, closed and open hi-hat, snare, clap, cowbell, woodblock; low, mid and high tom, rimshot, shaker, conga, ride, crash.)
 
 **A melodic layer:** three octaves of a minor pentatonic scale, lowest at the bottom left. Notes rise along each row, left to right, then continue on the row above, so pad 13 is the root and pad 4 is the root three octaves up. The roots fall on a diagonal: pads 13, 10, 7 and 4. Every voice uses the same key, so any layers played together stay in tune.
+
+### What the pads show
+
+| Color | Means |
+|---|---|
+| Yellow | A pad you're holding |
+| Red | A pad you're holding while recording or overdubbing it |
+| Blue flash | The loop playing that pad |
+| Off | Idle |
+
+Your own press wins over playback, so you can see your fingers during an overdub.
 
 ### Recording
 
@@ -302,7 +333,13 @@ The display shows the selected track (`T1` … `T8`). Tracks 1–8 play the kit'
 
 Choose a track in the channel view (VIEW, then tap its pad on the bottom two rows).
 
-The pad lights show the selected track's steps for the whole bar, and the step being played is always lit.
+The pads show the selected track's whole bar:
+
+| Color | Means |
+|---|---|
+| Dim blue | A step that's on (dim grey if the track is muted) |
+| White | The playhead, on a step that's off |
+| Bright blue | The playhead on a step that's on: it's playing |
 
 ---
 

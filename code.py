@@ -24,12 +24,20 @@ thing, on press -- no long presses; only UP/DOWN repeat while held:
                cancels and does nothing else; so does _CLEAR_TIMEOUT.
                Pads keep playing (a channel-view tap cancels it, though).
 
-Channel view (channel_view.py draws it): loop layers on pads 0-7,
-sequencer tracks on 8-15. KEY MODE select (always the mode on entering):
-a tap selects that channel -- switching LOOP/SEQ if it's on the other
-side -- and goes straight back to that mode's own view. KEY MODE mute: a
-tap mutes / unmutes that channel and stays. Its pads never reach the
-modes.
+Lights: draw_lights() redraws the pads (the active view, from pad_views.py)
+and every function key's color, up to 60 times a second and straight after
+any key event. The views are LOOP's keyboard, SEQ's steps, and the channel
+view: loop layers on pads 0-7, sequencer tracks on 8-15. In the channel
+view, KEY MODE select (always the mode on entering): a tap selects that
+channel -- switching LOOP/SEQ if it's on the other side -- and goes
+straight back to that mode's own view. KEY MODE mute: a tap mutes /
+unmutes that channel and stays. Its pads never reach the modes.
+
+AUTO (arranger.py; the menu's AUT item switches it): mutes and unmutes
+channels on phrase boundaries to vary the groove. This loop feeds it the
+phrase clock -- each bar of the tempo clock (before that bar's first step
+fires), or a freeform loop's passes -- and flashes the word it returns
+with each change.
 
 MENU overlay (menu.py): while open, MENU and UP/DOWN go to it and RECORD is
 its "back". The pads keep going to the active mode (or the channel view),
@@ -57,8 +65,8 @@ import palette
 from config import (DEFAULT_BPM, STEPS_PER_BAR, NUM_LOOP_LAYERS, NUM_TRACKS,
                     MODE_LOOPER, MODE_SEQUENCER, NUM_MODES, MODE_NAMES,
                     BTN_MODE, BTN_RECORD, BTN_PLAY_STOP, BTN_INC, BTN_DEC,
-                    BTN_MENU, BTN_VIEW, BTN_KEY_MODE, BTN_CLEAR)
-from event_types import BTN_DOWN, PAD_DOWN, PAD_UP, TICK, BEAT
+                    BTN_MENU, BTN_MUTE, BTN_VIEW, BTN_KEY_MODE, BTN_CLEAR)
+from event_types import BTN_DOWN, BTN_UP, PAD_DOWN, PAD_UP, TICK, BEAT
 
 from hw           import Hardware
 from synth_engine import SynthEngine
@@ -66,10 +74,11 @@ from display      import DisplayManager
 from looper       import LooperMode
 from sequencer    import SequencerMode
 from menu         import MenuMode
-from channel_view import ChannelView
+from pad_views    import KeyboardView, StepView, ChannelView
+from arranger     import Arranger
 import startup
 
-_BEAT_PULSE_DURATION  = 0.06 # seconds: how long LED_BEAT stays lit per quarter note
+_BEAT_PULSE_DURATION  = 0.06 # seconds: how long PLAY/STOP flashes bright per quarter note
 _FLASH_HOLD           = 1.0  # seconds: how long the volume readout stays up after the last change
 _LOCK_FLASH_HOLD      = 0.8  # seconds: how long LOCK / BUSY / DONE show
 _VOLUME_REPEAT_DELAY  = 0.4  # seconds: how long UP/DOWN must be held before auto-repeat kicks in
@@ -77,7 +86,11 @@ _VOLUME_REPEAT_INTERVAL = 0.1 # seconds between auto-repeat steps while held
 _VOLUME_STEP          = 5    # % per UP/DOWN step
 _CLEAR_TIMEOUT        = 3.0  # seconds an armed CLEAR waits for MENU
 _CLEAR_BLINK_HZ       = 4.0  # the armed CLEAR key's blink
-_VIEW_FRAME_INTERVAL  = 1 / 30  # seconds between channel-view redraws
+_ARMED_BLINK_HZ       = 2.5  # RECORD's blink while armed / counting in
+_FRAME_INTERVAL       = 1 / 60  # seconds between light redraws (the pixels' own send rate)
+
+# Function keys lit white while held.
+_PRESS_LIT = (BTN_MENU, BTN_INC, BTN_DEC, BTN_VIEW)
 
 
 def step_duration(bpm):
@@ -97,7 +110,10 @@ def main():
 
     seq        = SequencerMode(synth, disp)
     looper     = LooperMode(synth, disp, seq)
+    keyboard   = KeyboardView(looper)
+    steps      = StepView(seq)
     channels   = ChannelView(looper, seq)
+    arranger   = Arranger(looper, seq)
 
     modes      = [looper, seq]
     mode_index = MODE_LOOPER
@@ -132,6 +148,17 @@ def main():
     tick_anchor  = 0.0
     tick_count   = 0       # ticks fired since tick_anchor
     seq_was_playing = False   # edge-detects seq.playing to reset the clock on resume
+
+    # AUTO's phrase clock: bars of the tempo clock since it last started
+    # (-1 before the first), or a freeform loop's passes (looper.pass_index).
+    bar_index = -1
+    last_pass = -1
+
+    def arrange(word, now):
+        """Flash AUTO's word for a change, if any -- not over an armed
+        CLEAR's label."""
+        if word and not clear_scope:
+            flash(word, now, _LOCK_FLASH_HOLD)
 
     def set_bpm(new_bpm):
         """Change tempo without a jump: the next tick lands one *new* step
@@ -276,25 +303,19 @@ def main():
     # ── The channel view ──────────────────────────────────────────────────────
     channel_view_on = False
     key_mode_mute   = False   # KEY MODE: False = select, True = mute
-    view_render_at  = 0.0     # next channel-view redraw
     # Pads pressed into the channel view: their releases are its too, even
     # if the view has closed since (a select closes it on the press).
     view_pads = set()
 
     def set_channel_view(on):
-        nonlocal channel_view_on, key_mode_mute, view_render_at
+        nonlocal channel_view_on, key_mode_mute
         if on == channel_view_on:
             return
         channel_view_on = on
         key_mode_mute   = False   # every visit starts in select
-        if on:
-            view_render_at = 0.0  # draw it this pass
-        else:
-            disp.set_pad_frame(None)
 
     def channel_tap(pad, now):
         """A pad tapped in the channel view."""
-        nonlocal view_render_at
         if pad >= NUM_LOOP_LAYERS + NUM_TRACKS:
             return
         if pad < NUM_LOOP_LAYERS:
@@ -304,7 +325,6 @@ def main():
         mode = modes[target]
         if key_mode_mute:
             mode.toggle_mute(n)
-            view_render_at = 0.0
             return
         if mode is looper and not looper.can_select(n):
             flash("BUSY", now, _LOCK_FLASH_HOLD)   # another layer is recording
@@ -360,7 +380,7 @@ def main():
     menu = MenuMode(synth, disp, looper, seq, lambda: active,
                     capture_groove=capture_groove, apply_groove=apply_groove,
                     get_bpm=lambda: bpm, set_bpm=set_bpm,
-                    tempo_locked=tempo_locked)
+                    tempo_locked=tempo_locked, arranger=arranger)
 
     def open_menu():
         nonlocal menu_active, flash_until, vol_held_dir
@@ -381,17 +401,82 @@ def main():
         disp.hold_text(False)
         active.refresh_display()
 
+    # ── Lights ────────────────────────────────────────────────────────────────
+    held_keys = set()   # function keys held down right now
+    lights_at = 0.0     # next draw_lights()
+
+    def draw_lights(now):
+        """The pads (the active view) and every function key's light."""
+        if channel_view_on:
+            disp.set_pad_frame(channels.frame(now))
+        elif active is looper:
+            disp.set_pad_frame(keyboard.frame(now))
+        else:
+            disp.set_pad_frame(steps.frame(now))
+
+        # PLAY/STOP: flashing on the beat while the tempo clock runs; steady
+        # for a freeform loop playing (no clock); off when stopped.
+        if seq.playing:
+            play = palette.BEAT if now < beat_led_until else palette.PLAYING
+        elif looper.transport_playing and looper.is_playing:
+            play = palette.PLAYING
+        else:
+            play = palette.OFF
+        disp.set_key_color(BTN_PLAY_STOP, play)
+
+        # RECORD: solid while recording / overdubbing, blinking while armed
+        # or counting in -- whichever mode has focus.
+        status = looper.record_status
+        if status == "rec":
+            record = palette.RECORDING
+        elif status == "armed" and int(now * _ARMED_BLINK_HZ * 2) % 2 == 0:
+            record = palette.RECORDING
+        else:
+            record = palette.OFF
+        disp.set_key_color(BTN_RECORD, record)
+
+        if active is looper:
+            muted = looper.channel_status(looper.active_idx) == "muted"
+        else:
+            muted = seq.selected_muted
+        disp.set_key_color(BTN_MUTE, palette.MUTED if muted else palette.OFF)
+
+        disp.set_key_color(BTN_MODE, palette.LOOP_MODE if active is looper
+                           else palette.SEQ_MODE)
+
+        if not channel_view_on:
+            key_mode = palette.OFF
+        else:
+            key_mode = palette.KEY_MUTE if key_mode_mute else palette.KEY_SELECT
+        disp.set_key_color(BTN_KEY_MODE, key_mode)
+
+        clear_on = clear_scope and int((now - clear_armed_at) * _CLEAR_BLINK_HZ * 2) % 2 == 0
+        disp.set_key_color(BTN_CLEAR, palette.ARMED_CLEAR if clear_on else palette.OFF)
+
+        for button in _PRESS_LIT:
+            disp.set_key_color(button, palette.PRESSED if button in held_keys
+                               else palette.OFF)
+
+    if config.TIMING_PROBE:
+        draw_lights = hw.timed_draw(draw_lights)
+
     disp.show(MODE_NAMES[mode_index])
 
     while True:
         now    = clock.now()
         events = hw.scan()
+        if events:
+            lights_at = 0.0   # show a press straight away
 
         # ── Route each event: pads, then function keys ────────────────────────
         # `filtered` collects what the active mode (or the menu) gets.
         filtered = []
         for event in events:
             etype, data, event_time = event
+            if etype == BTN_DOWN:
+                held_keys.add(data)
+            elif etype == BTN_UP:
+                held_keys.discard(data)
 
             # ── Pads: the channel view's, or the active mode's ────────────────
             if etype == PAD_DOWN and channel_view_on:
@@ -532,6 +617,7 @@ def main():
             step        = 0
             tick_anchor = now
             tick_count  = 0
+            bar_index   = -1
         seq_was_playing = seq.playing
 
         if seq.playing:
@@ -544,6 +630,12 @@ def main():
                 # took): a synced take's loop_start is anchored to the
                 # TICK(0) that starts it, so it lands exactly on the
                 # sequencer's grid instead of a frame behind it.
+                if step == 0:
+                    # A new bar. AUTO's mutes go first, so a channel it
+                    # brings back plays this downbeat (and one it drops
+                    # doesn't).
+                    bar_index += 1
+                    arrange(arranger.on_unit(bar_index, "bar"), now)
                 tick_evt = (TICK, step)
                 seq.handle_event(tick_evt, tick_at)
                 if looper.clock_needed:
@@ -560,6 +652,11 @@ def main():
         # ── Per-mode continuous update ──────────────────────────────────────
         if looper.transport_playing:
             looper.update(now)
+            # A freeform loop (no tempo clock): AUTO counts its passes.
+            if not seq.playing and looper.pass_index != last_pass:
+                last_pass = looper.pass_index
+                if last_pass >= 0:
+                    arrange(arranger.on_unit(last_pass, "pass"), now)
         seq.update(now)
         if menu_active:
             menu.update(now)
@@ -567,21 +664,10 @@ def main():
         # ── Synth auto-release housekeeping ──────────────────────────────────
         synth.update()
 
-        # ── LEDs, drawn last so a mode's own LED refresh above never stomps
-        #    them: the channel view, the beat pulse, KEY MODE and CLEAR ────────
-        if channel_view_on and now >= view_render_at:
-            view_render_at = now + _VIEW_FRAME_INTERVAL
-            selected_pad = (looper.active_idx if active is looper
-                            else NUM_LOOP_LAYERS + seq.selected_track)
-            disp.set_pad_frame(channels.frame(now, selected_pad))
-        disp.set_led(config.LED_BEAT, now < beat_led_until)
-        if not channel_view_on:
-            key_color = palette.OFF
-        else:
-            key_color = palette.KEY_MUTE if key_mode_mute else palette.KEY_SELECT
-        disp.set_key_color(BTN_KEY_MODE, key_color)
-        clear_on = clear_scope and int((now - clear_armed_at) * _CLEAR_BLINK_HZ * 2) % 2 == 0
-        disp.set_key_color(BTN_CLEAR, palette.ARMED_CLEAR if clear_on else palette.OFF)
+        # ── Lights, drawn last so they show this pass's state ─────────────────
+        if now >= lights_at:
+            lights_at = now + _FRAME_INTERVAL
+            draw_lights(now)
         disp.update(now)   # NeoKey: send changed pixels (rate-limited)
 
 

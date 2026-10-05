@@ -166,17 +166,14 @@ class PixelLedsTest(unittest.TestCase):
             self.assertEqual(strip.brightness, config.PIXEL_BRIGHTNESS)
             self.assertFalse(strip.auto_write)
 
-    def test_mask_compatibility(self):
-        mask = (1 << 2) | (1 << config.LED_RECORD) | (1 << config.LED_PLAY)
-        self.leds.show_mask(mask)
+    def test_pads_and_buttons_by_position(self):
+        self.leds.set_pad(2, palette.PLAYBACK)
+        self.leds.set_button(BTN_RECORD, palette.RECORDING)
+        self.leds.set_button(None, palette.WHITE)     # unassigned: ignored
         self.leds.update()
         self.assertEqual(self.pads.shown[keymap.PAD_PIXEL[2]], palette.PLAYBACK)
         self.assertEqual(self.pads.shown[keymap.PAD_PIXEL[3]], palette.OFF)
         self.assertEqual(self.func_shown(BTN_RECORD), palette.RECORDING)
-        self.assertEqual(self.func_shown(BTN_PLAY_STOP), palette.PLAYING)
-        self.leds.show_mask(mask | (1 << config.LED_BEAT))
-        self.leds.update()
-        self.assertEqual(self.func_shown(BTN_PLAY_STOP), palette.BEAT)
         self.assertEqual(self.func_shown(BTN_MUTE), palette.OFF)
 
     def test_sends_only_changes_rate_limited(self):
@@ -214,7 +211,7 @@ class NeoKeyMainLoopTest(unittest.TestCase):
             h.pad_down(5)
             yield 0.03
             assert note in h.synth._synth.press_log
-            assert h.pad_color(5) == palette.PLAYBACK
+            assert h.pad_color(5) == palette.LIVE
             h.pad_up(5)
             yield 0.03
             assert h.pad_color(5) == palette.OFF

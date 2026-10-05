@@ -160,7 +160,7 @@ class SequencerSixteenStepTest(unittest.TestCase):
             for pad in (0, 9, 15):
                 yield from h.pad_tap(pad)
             assert [s for s, on in enumerate(h.seq._grid[0]) if on] == [0, 9, 15]
-            assert h.pad_color(15) == palette.PLAYBACK
+            assert h.pad_color(15) == palette.HAS_CONTENT
             assert h.pad_color(14) == palette.OFF
             assert h.text == "T1  "
             yield from h.tap(BTN_RECORD)                  # no page toggle any more
@@ -185,7 +185,7 @@ class SequencerSixteenStepTest(unittest.TestCase):
         run(scenario)
 
     def test_bottom_row_steps_leave_the_status_keys_alone(self):
-        # Pads 9-11 used to share bits with RECORD / PLAY / the beat.
+        # Pads 9-11 once shared bits with RECORD / PLAY / the beat.
         def scenario(h):
             yield from switch_mode(h)
             for pad in range(8, 16):
@@ -193,7 +193,7 @@ class SequencerSixteenStepTest(unittest.TestCase):
             assert h.key_color(BTN_RECORD) == palette.OFF
             assert h.key_color(BTN_PLAY_STOP) == palette.OFF
             for pad in range(8, 16):
-                assert h.pad_color(pad) == palette.PLAYBACK, pad
+                assert h.pad_color(pad) == palette.HAS_CONTENT, pad
         run(scenario)
 
 

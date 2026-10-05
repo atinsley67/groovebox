@@ -24,7 +24,10 @@ Every level is a list: the display shows the highlighted item's label, and
 UP/DOWN wrap around it.
 
 Root (always where the menu opens): SOUND, ASSIGN, BPM, EXTEND, MIRROR,
-SAVE, LOAD.
+SAVE, LOAD, AUTO -- the last one DOWN from the top.
+
+AUTO (either mode): MENU switches the mute arranger (arranger.py) on or
+  off; the label shows "AUT*" while it runs.
 
 SOUND: edit the target's sound -- SEQ mode: the selected track's drum sound
   (synth_params.DRUM_PARAM_SCHEMA); LOOP mode: the active layer's own
@@ -86,12 +89,14 @@ _ROOT_ITEMS = [
     ("MIRR", "mirror"),
     ("SAVE", _SAVE),
     ("LOAD", _LOAD),
+    ("AUT ", "auto"),   # "AUT*" while running
 ]
 
 
 class MenuMode:
     def __init__(self, synth, display, looper, seq, get_active_mode,
-                 capture_groove, apply_groove, get_bpm, set_bpm, tempo_locked):
+                 capture_groove, apply_groove, get_bpm, set_bpm, tempo_locked,
+                 arranger):
         self._synth           = synth
         self._display         = display
         self._looper          = looper
@@ -104,6 +109,7 @@ class MenuMode:
         self._get_bpm         = get_bpm
         self._set_bpm         = set_bpm
         self._tempo_locked    = tempo_locked
+        self._arranger        = arranger   # AUTO (arranger.py): start() / stop() / running
 
         self._section  = _ROOT
         self._root_idx = 0
@@ -239,6 +245,11 @@ class MenuMode:
             elif action in (_SAVE, _LOAD):
                 self._section    = action
                 self._used_slots = groove.used_slots()
+            elif action == "auto":
+                if self._arranger.running:
+                    self._arranger.stop()
+                else:
+                    self._arranger.start()
             elif not self._loop_active():
                 self._flash("N/A ", now)   # ASSIGN/EXTEND/MIRROR are loop-only
             elif action == _ASSIGN:
@@ -443,7 +454,9 @@ class MenuMode:
             text = self._msg
 
         elif self._section == _ROOT:
-            text = _ROOT_ITEMS[self._root_idx][0]
+            text, action = _ROOT_ITEMS[self._root_idx]
+            if action == "auto" and self._arranger.running:
+                text = "AUT*"
 
         elif self._section == _SOUND:
             schema, key, get, _, _, _ = self._edit_target()

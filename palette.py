@@ -1,10 +1,9 @@
 """
 The key colors, in one place: hue = meaning, brightness = activity (see
-the plan's color language). So far what the LED compatibility layer
-(pixels.py), the channel view (channel_view.py) and the new function keys
-need; the other pad views will add to it. Every value is full-scale RGB --
-config.PIXEL_BRIGHTNESS caps them all, so DIM is relative to that cap. All
-to be tuned by playing on the device.
+the plan's color language). The pad views (pad_views.py) and code.py's
+function-key lights take every color from here. Every value is full-scale
+RGB -- config.PIXEL_BRIGHTNESS caps them all, so DIM is relative to that
+cap. All to be tuned by playing on the device.
 """
 
 DIM = 0.25   # the "state" level (has content, playing): a fraction of full
@@ -14,21 +13,30 @@ def scaled(color, level):
     return (int(color[0] * level), int(color[1] * level), int(color[2] * level))
 
 
-OFF    = (0, 0, 0)
-RED    = (255, 0, 0)
-ORANGE = (255, 80, 0)
-BLUE   = (0, 48, 255)
-GREEN  = (0, 255, 0)
-WHITE  = (255, 255, 255)
+OFF     = (0, 0, 0)
+RED     = (255, 0, 0)
+ORANGE  = (255, 80, 0)
+YELLOW  = (255, 190, 0)
+GREEN   = (0, 255, 0)
+CYAN    = (0, 200, 255)
+BLUE    = (0, 48, 255)
+PURPLE  = (150, 0, 255)
+WHITE   = (255, 255, 255)
 
-PLAYBACK  = BLUE                # a pad sounding (loop playback, sequencer steps)
-RECORDING = RED                 # RECORD key: recording or armed
-PLAYING   = scaled(GREEN, DIM)  # PLAY/STOP key: transport running
-BEAT      = GREEN               # PLAY/STOP key: the beat pulse
-PRESSED   = WHITE               # io_test: a key held down
+# ── Pads ──────────────────────────────────────────────────────────────────────
+PLAYBACK    = BLUE                  # a note sounding: loop playback, a step firing
+LIVE        = YELLOW                # your own press, not recording
+RECORDING   = RED                   # your own press while recording / overdubbing
+HAS_CONTENT = scaled(GREEN, DIM)     # a channel with something in it; an on-step
+MUTED       = scaled(YELLOW, DIM)    # grey: content, but silent
+PLAYHEAD    = scaled(WHITE, 0.5)    # the step being played (off-step)
 
-HAS_CONTENT = scaled(BLUE, DIM)   # channel view: a channel with something in it
-MUTED       = scaled(WHITE, DIM)  # grey: content, but silent
-ARMED_CLEAR = ORANGE              # CLEAR key: a clear waiting for MENU to confirm
-KEY_SELECT  = WHITE               # KEY MODE key: pad taps select
-KEY_MUTE    = MUTED               # KEY MODE key: pad taps mute
+# ── Function keys ─────────────────────────────────────────────────────────────
+PLAYING     = scaled(GREEN, DIM)    # PLAY/STOP: transport running
+BEAT        = GREEN                 # PLAY/STOP: the beat pulse
+LOOP_MODE   = scaled(CYAN, DIM)     # LOOP/SEQ: in LOOP
+SEQ_MODE    = scaled(PURPLE, DIM)   # LOOP/SEQ: in SEQ
+ARMED_CLEAR = ORANGE                # CLEAR: a clear waiting for MENU to confirm
+KEY_SELECT  = WHITE                 # KEY MODE: pad taps select
+KEY_MUTE    = MUTED                 # KEY MODE: pad taps mute
+PRESSED     = WHITE                 # MENU / UP / DOWN / VIEW while held; io_test

@@ -120,9 +120,6 @@ class Harness:
     def bpm(self):
         return round(60.0 / (self.seq.step_dur * 4))
 
-    def led(self, index):
-        return bool(self.disp._led_state & (1 << index))
-
     def pad_color(self, pad):
         """The color the pixel under pad `pad` shows."""
         strip = self.disp.pixels._pads.pixels

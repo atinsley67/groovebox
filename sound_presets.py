@@ -392,7 +392,6 @@ KIT_SOUND_BUILDERS = [
     _build_shaker,     _build_conga,    _build_ride,     _build_crash,
 ]
 
-
 def build_kit_instance(count=None):
     """
     Return a fresh list of dicts, each describing one pad's sound: the

@@ -60,7 +60,7 @@ KEY_TIME_ADJUST = (KEY_DEBOUNCE_THRESHOLD - 0.5) * KEY_SCAN_INTERVAL
 
 # NeoPixel brightness cap (0.0-1.0) for both strips. USB powers everything,
 # and the pixels run at ~4.3 V: start low, tune on the device.
-PIXEL_BRIGHTNESS = 0.2
+PIXEL_BRIGHTNESS = 0.3
 
 # Layout tables, each written as you look at the piece (top row first).
 # KEYS tables hold the keypad key number at each position, PIXELS tables
@@ -137,12 +137,3 @@ MODE_GAME      = 2
 NUM_MODES      = 2  # game not yet implemented
 
 MODE_NAMES = ["LOOP", "SEQ "]
-
-# ── Status LED layout (the modes' LED bitmask) ────────────────────────────────
-# Bits 0..NUM_PADS-1 are the pads (step on/off, pad sounding); the bits
-# below sit above them: LED_RECORD is the RECORD key, LED_PLAY + LED_BEAT
-# the PLAY/STOP key (see pixels.py). Replaced by colors once the pad views
-# exist.
-LED_RECORD   = 16  # lit while recording (not while armed / counting in)
-LED_PLAY     = 17  # lit while playing
-LED_BEAT     = 18  # pulses on each beat

@@ -178,8 +178,8 @@ class LooperMode:
         self._active_idx = 0
         self._master_dur = 0.0   # loop length; set by first layer recorded
 
-        # Pad LEDs, active layer only. Two independent sources, combined at
-        # display time (see _refresh_display): _held_mask mirrors a pad's
+        # Pad lights, active layer only. Two independent sources, combined by
+        # pad_views.KeyboardView: _held_mask mirrors a pad's
         # live physical down/up state exactly, no timer involved; _flash_mask
         # is a timed pulse for a note auto-triggered by loop playback, which
         # has no physical press to key off of.
@@ -190,10 +190,14 @@ class LooperMode:
         # channel view's activity flash.
         self._played_at = [-1.0] * NUM_LOOP_LAYERS
 
+        # Loop passes since the transport started (see pass_index), and
+        # when the current one began.
+        self._pass_index = -1
+        self._pass_at    = 0.0
+
         # Recording state (applies to whichever layer is being recorded)
         self._rec_state = _IDLE
         self._loop_start = 0.0
-        self._bar_count  = 0
 
         # Snap-to-bar sync
         self._synced         = False
@@ -266,6 +270,38 @@ class LooperMode:
     def snap_active(self):
         return self._snap_active
 
+    # ── For the lights (pad_views.KeyboardView, code.py's key lights) ─────────
+
+    @property
+    def held_mask(self):
+        """Pads held down right now on the active layer (bit n = pad n)."""
+        return self._held_mask
+
+    @property
+    def flash_mask(self):
+        """Pads the active layer's playback just played (bit n = pad n)."""
+        return self._flash_mask
+
+    @property
+    def capturing(self):
+        """True while a press on the active layer is being recorded:
+        recording it, or overdubbing it."""
+        return (self._rec_state == _RECORDING or
+                self._layers[self._active_idx].state == _OVERDUB)
+
+    @property
+    def record_status(self):
+        """"rec" (recording, or any layer overdubbing), "armed" (armed or
+        counting in), or None."""
+        if self._rec_state == _RECORDING:
+            return "rec"
+        if self._rec_state in (_ARMED, _COUNTDOWN):
+            return "armed"
+        for layer in self._layers:
+            if layer.state == _OVERDUB:
+                return "rec"
+        return None
+
     @property
     def transport_playing(self):
         return self._transport_playing
@@ -328,6 +364,33 @@ class LooperMode:
     def toggle_mute(self, idx):
         self._toggle_mute(self._layers[idx])
         self._refresh_display()
+
+    # ── For AUTO (arranger.py) ────────────────────────────────────────────────
+
+    def can_arrange(self, idx):
+        """True for a layer AUTO may mute / unmute: one with a committed
+        loop that's playing or muted (not idle, not being recorded or
+        overdubbed)."""
+        return self._layers[idx].state in (_PLAYING, _MUTED)
+
+    def is_muted(self, idx):
+        return self._layers[idx].state == _MUTED
+
+    def set_muted(self, idx, muted):
+        layer = self._layers[idx]
+        if muted and layer.state == _PLAYING:
+            layer.state = _MUTED
+        elif not muted and layer.state == _MUTED:
+            layer.state = _PLAYING
+        self._refresh_display()
+
+    @property
+    def pass_index(self):
+        """Which pass of the loop is playing, counted from 0 since the
+        loop was first recorded or loaded (-1 before the first). A resume
+        starts a new pass. AUTO's phrase clock for a freeform loop -- which
+        has no bar lines, so the count needn't restart with the transport."""
+        return self._pass_index
 
     def clear_layer(self, idx):
         self._clear_layer(idx)
@@ -539,9 +602,6 @@ class LooperMode:
                 else:
                     break
 
-        if wrapped:
-            self._bar_count += 1
-
         # Previous-pass releases go first, so they can't cut off a note this
         # pass just started. Then note-ons before note-offs so a note
         # recorded with a very short hold (onset and release landing in the
@@ -560,16 +620,23 @@ class LooperMode:
             if idx == self._active_idx:
                 active_mask |= (1 << pad)
 
-        display_changed = wrapped
         if active_mask:
             self._flash_mask  |= active_mask
             self._flash_until  = now + _FLASH_DURATION
-            display_changed = True
         elif self._flash_mask and now >= self._flash_until:
             self._flash_mask = 0
-            display_changed = True
 
-        if display_changed:
+        # Every layer shares the loop's length and phase, so a wrap is a new
+        # pass -- but a layer committed at the wrap can report its own wrap
+        # a moment after the others: one count per half-loop at most.
+        if wrapped and (self._pass_index < 0 or
+                        now - self._pass_at > self._master_dur / 2):
+            self._pass_index += 1
+            self._pass_at     = now
+
+        if wrapped:
+            # The text: a wrap is where an auto-committed take shows as
+            # playing. (The pad lights are drawn from flash_mask.)
             self._refresh_display()
 
         return [pad for _, pad in triggered]
@@ -820,11 +887,11 @@ class LooperMode:
                 self._rec_state = _IDLE
         if all(l.state == _IDLE for l in self._layers):
             self._master_dur  = 0.0
-            self._bar_count   = 0
+            self._pass_index  = -1
             self._was_cleared = True
 
     def clear_all(self):
-        """Called externally by code.py on a long PLAY/STOP press."""
+        """Called externally by code.py: CLEAR's "every layer" scope."""
         for layer in self._layers:
             layer.events        = []
             layer.releases      = []
@@ -833,13 +900,13 @@ class LooperMode:
             layer.state         = _IDLE
         self._master_dur  = 0.0
         self._rec_state   = _IDLE
-        self._bar_count   = 0
         self._flash_mask  = 0
+        self._pass_index  = -1
         self._was_cleared = True
         self._refresh_display()
 
     def set_playing(self, playing, now):
-        """Called externally by code.py on a short PLAY/STOP press (and kept
+        """Called externally by code.py on a PLAY/STOP press (and kept
         in sync with the sequencer's own transport, except in a freeform
         session -- see code.py). Pausing doesn't stop code.py from calling
         handle_event for non-clock events (previewing a pad still works),
@@ -911,8 +978,8 @@ class LooperMode:
         self._snap_active         = False
         self._snap_bar_count      = 0
         self._snap_stop_requested = False
-        self._bar_count           = 0
         self._flash_mask          = 0
+        self._pass_index          = -1
         self._was_cleared         = False
 
         saved = data.get("layers", [])
@@ -1074,12 +1141,8 @@ class LooperMode:
         else:
             disp_state = layer.state
 
-        bar = self._snap_bar_count if self._snap_active else self._bar_count
         self._display.show_looper_state(
-            self._held_mask | self._flash_mask,
             disp_state,
-            bar,
             layer_num=self._active_idx + 1,
             synced=self._synced and self._snap_active,
-            transport_playing=self._transport_playing,
         )

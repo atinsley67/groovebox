@@ -12,8 +12,8 @@ UI interaction:
     toggle_mute()).
 
 Display (4 chars): T<track+1>  e.g. "T1  "
-Pad LEDs         : step on/off for the selected track; the step being
-                   played is always lit.
+Pad lights: the selected track's steps and the playhead
+(pad_views.StepView).
 """
 
 from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, TICK
@@ -86,6 +86,16 @@ class SequencerMode:
     def selected_track(self):
         return self._selected_track
 
+    @property
+    def selected_steps(self):
+        """The selected track's steps (step n on = [n]). The live list --
+        read it, don't change it."""
+        return self._grid[self._selected_track]
+
+    @property
+    def selected_muted(self):
+        return bool(self._muted_tracks & (1 << self._selected_track))
+
     def update(self, now):
         pass
 
@@ -112,6 +122,22 @@ class SequencerMode:
 
     def toggle_mute(self, track):
         self._muted_tracks ^= (1 << track)
+        self._refresh_display()
+
+    # ── For AUTO (arranger.py) ────────────────────────────────────────────────
+
+    def can_arrange(self, track):
+        """True for a track AUTO may mute / unmute: one with steps."""
+        return any(self._grid[track])
+
+    def is_muted(self, track):
+        return bool(self._muted_tracks & (1 << track))
+
+    def set_muted(self, track, muted):
+        if muted:
+            self._muted_tracks |= (1 << track)
+        else:
+            self._muted_tracks &= ~(1 << track)
         self._refresh_display()
 
     def clear_track(self, track):
@@ -199,19 +225,7 @@ class SequencerMode:
                 self._synth.trigger(track)
                 self._played_at[track] = now
 
-    def _steps_bitmask(self):
-        mask = 0
-        for step, on in enumerate(self._grid[self._selected_track]):
-            if on:
-                mask |= (1 << step)
-        return mask
-
     def _refresh_display(self):
         if not self._is_display_owner:
             return
-        self._display.show_sequencer_state(
-            steps_mask=self._steps_bitmask(),
-            playhead_step=self._current_step if self._playing else -1,
-            is_playing=self._playing,
-            selected_track=self._selected_track,
-        )
+        self._display.show_sequencer_state(self._selected_track)

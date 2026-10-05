@@ -7,7 +7,7 @@ call marks the start of a main-loop pass. Given the DisplayManager too, it
 also times the LED work. Every REPORT_EVERY seconds it prints one line to
 the serial console:
 
-  TIMING passes 4210 avg 1.19ms worst 8.42ms >5ms 3 >10ms 0 | scan avg 0.21ms worst 0.40ms | session worst 12.80ms | gc 6.90ms free 182k | alloc 410B/pass ~9gc | leds map 212x 0.09ms worst 0.31ms send 180x 0.52ms worst 0.95ms
+  TIMING passes 4210 avg 1.19ms worst 8.42ms >5ms 3 >10ms 0 | scan avg 0.21ms worst 0.40ms | session worst 12.80ms | gc 6.90ms free 182k | alloc 410B/pass ~9gc | leds draw 300x 0.30ms worst 0.61ms send 180x 0.52ms worst 0.95ms
 
   passes        main-loop passes in the window
   avg / worst   time per pass (one scan to the next, everything included)
@@ -27,9 +27,9 @@ the serial console:
                 window; "~9gc" is how many collections that rate predicts in
                 the window (alloc x passes / free). If it matches >5ms, the
                 slow passes are GC. "?" if a collection got in the way.
-  leds map      LED changes turned into LED output (DisplayManager's
-                _flush_leds, only calls where something changed): count,
-                average, worst
+  leds draw     code.py's draw_lights (the pad view's frame and every key's
+                color, up to 60 a second), once code.py hands it over with
+                timed_draw(): count, average, worst
   leds send     NeoPixel strip sends (DisplayManager.update calls that sent)
 
 Uses integer time.monotonic_ns(), not clock.now(): float seconds lose
@@ -80,27 +80,27 @@ class TimingProbe:
         self._scans      = 0
         self._scan_total = 0
         self._scan_worst = 0
-        self._map  = [0, 0, 0]   # [count, total ns, worst ns]
+        self._draw = [0, 0, 0]   # [count, total ns, worst ns]
         self._send = [0, 0, 0]
 
     # ── LED timing ────────────────────────────────────────────────────────────
 
-    def _wrap_leds(self, disp):
-        """Time the display's LED work by replacing two of its methods with
-        timed versions. Calls with nothing to do aren't timed, so the probe
-        adds no clock reads to an idle pass."""
-        ns    = self._ns
-        flush = disp._flush_leds
+    def timed_draw(self, draw):
+        """`draw` (code.py's draw_lights), timed on every call."""
+        ns = self._ns
 
-        def timed_flush():
-            if disp._led_state == disp._led_shown:
-                return flush()
+        def timed(now):
             start = ns()
-            flush()
-            _record(self._map, ns() - start)
+            draw(now)
+            _record(self._draw, ns() - start)
 
-        disp._flush_leds = timed_flush
+        return timed
 
+    def _wrap_leds(self, disp):
+        """Time the display's sends by replacing its update() with a timed
+        version. Calls with nothing to send aren't timed, so the probe adds
+        no clock reads to an idle pass."""
+        ns     = self._ns
         pixels = disp.pixels
         if pixels is None:
             return
@@ -202,7 +202,7 @@ class TimingProbe:
                 gcs = self._alloc_per_pass * self._passes / max(1, self._free_after_gc)
                 line += f" | alloc {int(self._alloc_per_pass)}B/pass ~{gcs:.0f}gc"
         if self._has_leds:
-            line += " | leds map " + _stat(self._map)
+            line += " | leds draw " + _stat(self._draw)
             if self._has_sends:
                 line += " send " + _stat(self._send)
         return line

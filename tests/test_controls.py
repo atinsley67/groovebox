@@ -8,7 +8,7 @@ import unittest
 import fakes  # noqa: F401  (installs the CircuitPython fakes first)
 
 import palette
-from channel_view import ChannelView
+from pad_views import ChannelView
 from config import (BTN_MENU, BTN_PLAY_STOP, BTN_RECORD, BTN_MUTE, BTN_MODE,
                     BTN_VIEW, BTN_KEY_MODE, BTN_CLEAR, NUM_LOOP_LAYERS)
 from harness import run
@@ -167,7 +167,7 @@ class ChannelViewColorsTest(unittest.TestCase):
         layers = ["empty", "content", "muted", "rec", "content", "muted",
                   "empty", "empty"]
         view = self.view(layers, ["content"] + ["empty"] * 7, played={4: 9.95, 5: 9.95})
-        frame = list(view.frame(10.0, selected_pad=-1))
+        frame = list(view.frame(10.0))
         self.assertEqual(frame[0], palette.OFF)
         self.assertEqual(frame[1], palette.HAS_CONTENT)
         self.assertEqual(frame[2], palette.MUTED)
@@ -179,17 +179,15 @@ class ChannelViewColorsTest(unittest.TestCase):
 
     def test_armed_blinks(self):
         view = self.view(["armed"] + ["empty"] * 7, ["empty"] * 8)
-        seen = {view.frame(t / 100, -1)[0] for t in range(100)}
+        seen = {view.frame(t / 100)[0] for t in range(100)}
         self.assertEqual(seen, {palette.RECORDING, palette.OFF})
 
-    def test_selected_channel_pulses_in_its_own_hue(self):
-        for status in ("content", "empty", "muted"):
-            view = self.view([status] + ["empty"] * 7, ["empty"] * 8)
-            seen = {view.frame(t / 50, selected_pad=0)[0] for t in range(100)}
-            self.assertGreater(len(seen), 3, status)
-            self.assertNotIn(palette.OFF, seen, status)
-            for r, g, b in seen:
-                self.assertTrue(b > 0 and (r == 0) == (status != "muted"), (status, r, g, b))
+    def test_steady_between_notes(self):
+        # No pulse on any channel: content holds one color until a note.
+        view = self.view(["content", "muted", "empty"] + ["empty"] * 5, ["empty"] * 8)
+        for pad, want in ((0, palette.HAS_CONTENT), (1, palette.MUTED), (2, palette.OFF)):
+            seen = {view.frame(t / 50)[pad] for t in range(100)}
+            self.assertEqual(seen, {want}, pad)
 
 
 class ChannelViewTest(unittest.TestCase):
@@ -205,9 +203,10 @@ class ChannelViewTest(unittest.TestCase):
             assert h.pad_color(TRACK_PAD) == palette.HAS_CONTENT
             assert h.pad_color(5) == palette.OFF
             seen = yield from colors_over(h, lambda: h.pad_color(0), 1.0)
-            assert palette.PLAYBACK in seen               # layer 1 plays its note
-            assert len(seen) > 3                          # ... and pulses: selected
-            yield from h.tap(BTN_VIEW)                    # back: the bitmask again
+            # Layer 1 (the selected one) shows only its activity: its note
+            # flashing, otherwise steady.
+            assert seen == {palette.PLAYBACK, palette.HAS_CONTENT}, seen
+            yield from h.tap(BTN_VIEW)                    # back: the keyboard
             yield 0.05
             assert h.pad_color(TRACK_PAD) == palette.OFF
         run(scenario)

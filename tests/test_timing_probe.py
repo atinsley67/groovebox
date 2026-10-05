@@ -8,6 +8,7 @@ import fakes  # noqa: F401  (installs the CircuitPython fakes first)
 
 import config
 import harness
+import palette
 from config import BTN_MENU
 from timing_probe import TimingProbe
 
@@ -135,7 +136,7 @@ class AllocAndLedTimingTest(unittest.TestCase):
                 free[0] += 10                      # memory going *up*: collected
         self.assertIn("alloc ?", probe.report_line())
 
-    def test_led_work_timed_only_when_there_is_some(self):
+    def test_led_work_timed(self):
         ns = FakeNs()
 
         class Strip:
@@ -145,28 +146,29 @@ class AllocAndLedTimingTest(unittest.TestCase):
             _pads, _func = Strip(), Strip()
 
         class Disp:
-            pixels      = Pixels()
-            _led_state  = 0
-            _led_shown  = 0
-
-            def _flush_leds(self):
-                ns.t += 2 * MS
-                self._led_shown = self._led_state
+            pixels = Pixels()
 
             def update(self, now=None):
                 ns.t += 3 * MS
                 self.pixels._pads.dirty = False
 
+        drawn = []
+
+        def draw(now):
+            ns.t += 2 * MS
+            drawn.append(now)
+
         disp  = Disp()
         probe = TimingProbe(FakeHw(ns, 0), disp, ns=ns, mem_free=None)
-        disp._flush_leds()          # nothing changed: not timed
+        timed = probe.timed_draw(draw)
+        timed(1.5)
+        timed(1.6)
+        self.assertEqual(drawn, [1.5, 1.6])
         disp.update()               # nothing to send: not timed
-        disp._led_state = 5
-        disp._flush_leds()
         disp.pixels._pads.dirty = True
         disp.update()
         line = probe.report_line()
-        self.assertIn("leds map 1x 2.00ms", line)
+        self.assertIn("leds draw 2x 2.00ms", line)
         self.assertIn("send 1x 3.00ms", line)
 
 
@@ -180,7 +182,7 @@ class MainLoopWithProbeTest(unittest.TestCase):
                 assert h.text == "SND "
                 h.pad_down(2)
                 yield 0.05
-                assert h.led(2)            # LED work still happens through the timers
+                assert h.pad_color(2) == palette.LIVE   # drawn through the timer
                 h.pad_up(2)
                 yield 0.05
             harness.run(scenario)
