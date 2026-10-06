@@ -88,7 +88,8 @@ Snap-to-bar sync:
   played. (Later layers auto-commit at master_duration instead.)
 """
 
-from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, BTN_UP, TICK
+import keymap
+from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, TICK
 from config import (BTN_RECORD, BTN_MUTE,
                     MAX_LOOP_EVENTS, NUM_LOOP_LAYERS, NUM_PADS, STEPS_PER_BAR)
 
@@ -100,7 +101,6 @@ _PLAYING   = "PLY "
 _OVERDUB   = "DUB "
 _MUTED     = "MUTE"
 
-_LONG_PRESS_MUTE = 0.6   # seconds: clear active layer
 _FLASH_DURATION  = 0.08  # seconds: how long a pad LED stays lit after firing
 
 _COUNTDOWN_STEPS  = 3                          # numbered flashes before REC ("ARM3".."ARM1")
@@ -135,10 +135,13 @@ def _count_through(entries, pos):
     return n
 
 
-def _restore_entries(saved, duration):
+def _restore_entries(saved, duration, v1_notes=False):
     """Saved [pos, pad] pairs back to sorted (pos, pad) tuples, dropping
-    anything a playable loop couldn't hold (hand-edited files included)."""
-    entries = [(pos, pad) for pos, pad in saved
+    anything a playable loop couldn't hold (hand-edited files included).
+    v1_notes: a melodic layer from a v1 groove, where pad n played note n --
+    each moves to the pad that plays that note now."""
+    entries = [(pos, keymap.PAD_OF_NOTE[pad] if v1_notes else pad)
+               for pos, pad in saved
                if 0.0 <= pos < duration and 0 <= pad < NUM_PADS]
     entries.sort(key=lambda e: e[0])
     return entries[:MAX_LOOP_EVENTS]
@@ -175,19 +178,26 @@ class LooperMode:
         self._active_idx = 0
         self._master_dur = 0.0   # loop length; set by first layer recorded
 
-        # Pad LEDs, active layer only. Two independent sources, combined at
-        # display time (see _refresh_display): _held_mask mirrors a pad's
+        # Pad lights, active layer only. Two independent sources, combined by
+        # pad_views.KeyboardView: _held_mask mirrors a pad's
         # live physical down/up state exactly, no timer involved; _flash_mask
         # is a timed pulse for a note auto-triggered by loop playback, which
         # has no physical press to key off of.
         self._held_mask   = 0
         self._flash_mask  = 0
         self._flash_until = 0.0
+        # When each layer last played a note (live or playback), for the
+        # channel view's activity flash.
+        self._played_at = [-1.0] * NUM_LOOP_LAYERS
+
+        # Loop passes since the transport started (see pass_index), and
+        # when the current one began.
+        self._pass_index = -1
+        self._pass_at    = 0.0
 
         # Recording state (applies to whichever layer is being recorded)
         self._rec_state = _IDLE
         self._loop_start = 0.0
-        self._bar_count  = 0
 
         # Snap-to-bar sync
         self._synced         = False
@@ -223,9 +233,6 @@ class LooperMode:
         # played before" differently from an actual resume (see there).
         self._transport_playing = False
         self._paused_at         = None
-
-        # Long-press timestamps
-        self._mute_at = 0.0
 
         # Ownership must be explicitly claimed via enter()/set_display_owner
         # -- never assumed at construction, since code.py only ever hands
@@ -263,6 +270,38 @@ class LooperMode:
     def snap_active(self):
         return self._snap_active
 
+    # ── For the lights (pad_views.KeyboardView, code.py's key lights) ─────────
+
+    @property
+    def held_mask(self):
+        """Pads held down right now on the active layer (bit n = pad n)."""
+        return self._held_mask
+
+    @property
+    def flash_mask(self):
+        """Pads the active layer's playback just played (bit n = pad n)."""
+        return self._flash_mask
+
+    @property
+    def capturing(self):
+        """True while a press on the active layer is being recorded:
+        recording it, or overdubbing it."""
+        return (self._rec_state == _RECORDING or
+                self._layers[self._active_idx].state == _OVERDUB)
+
+    @property
+    def record_status(self):
+        """"rec" (recording, or any layer overdubbing), "armed" (armed or
+        counting in), or None."""
+        if self._rec_state == _RECORDING:
+            return "rec"
+        if self._rec_state in (_ARMED, _COUNTDOWN):
+            return "armed"
+        for layer in self._layers:
+            if layer.state == _OVERDUB:
+                return "rec"
+        return None
+
     @property
     def transport_playing(self):
         return self._transport_playing
@@ -285,22 +324,77 @@ class LooperMode:
     def refresh_display(self):
         self._refresh_display()
 
-    # ── Channel navigation (called by code.py MODE gesture handler) ───────────
+    # ── Channels (called by code.py for the channel view and CLEAR) ───────────
 
-    def cycle_channel(self):
-        if self._rec_state == _RECORDING:
-            return   # don't switch layers mid-recording
-        self._active_idx = (self._active_idx + 1) % NUM_LOOP_LAYERS
-        self._flash_mask = 0
-        self._refresh_display()
+    def can_select(self, n):
+        """False while recording on another layer: you can't change layer
+        mid-recording."""
+        return self._rec_state != _RECORDING or n == self._active_idx
 
     def select_channel(self, n):
-        if self._rec_state == _RECORDING:
+        if not self.can_select(n):
             return
         if 0 <= n < NUM_LOOP_LAYERS:
             self._active_idx = n
             self._flash_mask = 0
             self._refresh_display()
+
+    def channel_status(self, idx):
+        """Layer `idx` for the channel view: "rec" (recording or
+        overdubbing), "armed" (armed or counting in), "muted", "content" or
+        "empty"."""
+        layer = self._layers[idx]
+        if idx == self._active_idx:
+            if self._rec_state == _RECORDING:
+                return "rec"
+            if self._rec_state in (_ARMED, _COUNTDOWN):
+                return "armed"
+        if layer.state == _OVERDUB:
+            return "rec"
+        if layer.state == _MUTED:
+            return "muted"
+        if layer.state == _IDLE:
+            return "empty"
+        return "content"
+
+    def played_at(self, idx):
+        """When layer `idx` last played a note."""
+        return self._played_at[idx]
+
+    def toggle_mute(self, idx):
+        self._toggle_mute(self._layers[idx])
+        self._refresh_display()
+
+    # ── For AUTO (arranger.py) ────────────────────────────────────────────────
+
+    def can_arrange(self, idx):
+        """True for a layer AUTO may mute / unmute: one with a committed
+        loop that's playing or muted (not idle, not being recorded or
+        overdubbed)."""
+        return self._layers[idx].state in (_PLAYING, _MUTED)
+
+    def is_muted(self, idx):
+        return self._layers[idx].state == _MUTED
+
+    def set_muted(self, idx, muted):
+        layer = self._layers[idx]
+        if muted and layer.state == _PLAYING:
+            layer.state = _MUTED
+        elif not muted and layer.state == _MUTED:
+            layer.state = _PLAYING
+        self._refresh_display()
+
+    @property
+    def pass_index(self):
+        """Which pass of the loop is playing, counted from 0 since the
+        loop was first recorded or loaded (-1 before the first). A resume
+        starts a new pass. AUTO's phrase clock for a freeform loop -- which
+        has no bar lines, so the count needn't restart with the transport."""
+        return self._pass_index
+
+    def clear_layer(self, idx):
+        self._clear_layer(idx)
+        self._refresh_display()
 
     # ── Sync coordinator interface ────────────────────────────────────────────
 
@@ -325,6 +419,7 @@ class LooperMode:
             pad = data
             self._synth.trigger_layer_pad(self._active_idx, pad)
             self._held_mask |= (1 << pad)
+            self._played_at[self._active_idx] = now
             layer.last_pad = pad
 
             needs_release = self._needs_release(self._active_idx, pad)
@@ -429,14 +524,7 @@ class LooperMode:
             if data == BTN_RECORD:
                 self._handle_record(now)
             elif data == BTN_MUTE:
-                self._mute_at = now
-
-        elif etype == BTN_UP:
-            if data == BTN_MUTE:
-                if now - self._mute_at >= _LONG_PRESS_MUTE:
-                    self._clear_layer(self._active_idx)
-                else:
-                    self._toggle_mute(layer)
+                self._toggle_mute(layer)
 
         self._refresh_display()
 
@@ -514,9 +602,6 @@ class LooperMode:
                 else:
                     break
 
-        if wrapped:
-            self._bar_count += 1
-
         # Previous-pass releases go first, so they can't cut off a note this
         # pass just started. Then note-ons before note-offs so a note
         # recorded with a very short hold (onset and release landing in the
@@ -526,6 +611,7 @@ class LooperMode:
             self._release_pad(idx, pad)
         for idx, pad in triggered:
             self._synth.trigger_layer_pad(idx, pad)
+            self._played_at[idx] = now
         for idx, pad in released:
             self._release_pad(idx, pad)
 
@@ -534,16 +620,23 @@ class LooperMode:
             if idx == self._active_idx:
                 active_mask |= (1 << pad)
 
-        display_changed = wrapped
         if active_mask:
             self._flash_mask  |= active_mask
             self._flash_until  = now + _FLASH_DURATION
-            display_changed = True
         elif self._flash_mask and now >= self._flash_until:
             self._flash_mask = 0
-            display_changed = True
 
-        if display_changed:
+        # Every layer shares the loop's length and phase, so a wrap is a new
+        # pass -- but a layer committed at the wrap can report its own wrap
+        # a moment after the others: one count per half-loop at most.
+        if wrapped and (self._pass_index < 0 or
+                        now - self._pass_at > self._master_dur / 2):
+            self._pass_index += 1
+            self._pass_at     = now
+
+        if wrapped:
+            # The text: a wrap is where an auto-committed take shows as
+            # playing. (The pad lights are drawn from flash_mask.)
             self._refresh_display()
 
         return [pad for _, pad in triggered]
@@ -743,7 +836,7 @@ class LooperMode:
         # would very slightly mismatch the sequencer's own step_dur-based
         # clock, causing the two to drift apart over long sessions even
         # though each is individually steady. Tempo can't have changed
-        # mid-recording: code.py blocks the tempo buttons for the whole
+        # mid-recording: code.py blocks the menu's BPM edit for the whole
         # "snap" session.
         bar_count = self._snap_bar_count
         self._snap_active         = False
@@ -794,11 +887,11 @@ class LooperMode:
                 self._rec_state = _IDLE
         if all(l.state == _IDLE for l in self._layers):
             self._master_dur  = 0.0
-            self._bar_count   = 0
+            self._pass_index  = -1
             self._was_cleared = True
 
     def clear_all(self):
-        """Called externally by code.py on a long PLAY/STOP press."""
+        """Called externally by code.py: CLEAR's "every layer" scope."""
         for layer in self._layers:
             layer.events        = []
             layer.releases      = []
@@ -807,13 +900,13 @@ class LooperMode:
             layer.state         = _IDLE
         self._master_dur  = 0.0
         self._rec_state   = _IDLE
-        self._bar_count   = 0
         self._flash_mask  = 0
+        self._pass_index  = -1
         self._was_cleared = True
         self._refresh_display()
 
     def set_playing(self, playing, now):
-        """Called externally by code.py on a short PLAY/STOP press (and kept
+        """Called externally by code.py on a PLAY/STOP press (and kept
         in sync with the sequencer's own transport, except in a freeform
         session -- see code.py). Pausing doesn't stop code.py from calling
         handle_event for non-clock events (previewing a pad still works),
@@ -868,12 +961,15 @@ class LooperMode:
             })
         return {"master": self._master_dur, "layers": layers}
 
-    def restore(self, data):
+    def restore(self, data, v1_notes=False):
         """Replace everything with a snapshot(). Expects the transport
         already stopped (code.py does that first), so the next PLAY starts
         every layer from the top via set_playing(). Unlike clear_all() this
         never flags was_cleared -- code.py sets the loaded groove's sync
-        mode itself, and that flag would reset it to "none" at frame end."""
+        mode itself, and that flag would reset it to "none" at frame end.
+        v1_notes: the snapshot is from a v1 groove (see groove.py), so the
+        notes on melodic layers move to today's layout -- which needs the
+        layers' instruments already restored."""
         self._rec_state           = _IDLE
         self._countdown_kind      = None
         self._countdown_number    = 0
@@ -882,8 +978,8 @@ class LooperMode:
         self._snap_active         = False
         self._snap_bar_count      = 0
         self._snap_stop_requested = False
-        self._bar_count           = 0
         self._flash_mask          = 0
+        self._pass_index          = -1
         self._was_cleared         = False
 
         saved = data.get("layers", [])
@@ -899,8 +995,9 @@ class LooperMode:
                 layer.loop_duration = 0.0
                 layer.state         = _IDLE
                 continue
-            layer.events        = _restore_entries(entry.get("on", []), dur)
-            layer.releases      = _restore_entries(entry.get("off", []), dur)
+            remap = v1_notes and self._synth.layer_is_melodic(idx)
+            layer.events        = _restore_entries(entry.get("on", []), dur, remap)
+            layer.releases      = _restore_entries(entry.get("off", []), dur, remap)
             layer.loop_duration = dur
             layer.state         = _MUTED if entry.get("muted") else _PLAYING
 
@@ -1044,12 +1141,8 @@ class LooperMode:
         else:
             disp_state = layer.state
 
-        bar = self._snap_bar_count if self._snap_active else self._bar_count
         self._display.show_looper_state(
-            self._held_mask | self._flash_mask,
             disp_state,
-            bar,
             layer_num=self._active_idx + 1,
             synced=self._synced and self._snap_active,
-            transport_playing=self._transport_playing,
         )

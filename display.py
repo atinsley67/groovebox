@@ -1,79 +1,88 @@
 """
 DisplayManager wraps:
-  - Adafruit AW9523 (16-channel GPIO/LED driver) — LEDs 0-15
+  - the keys' NeoPixels (pixels.py): a color per pad, set a frame at a
+    time (pad_views.py draws them; code.py sends the active view's), and a
+    color per function key (code.py's key lights)
   - Adafruit Quad Alphanumeric Display (HT16K33 14-segment, 4 chars)
 
-AW9523 LED layout:
-  LEDs  0-7  : primary row  (step on/off, pad-in-loop state)
-  LEDs  8-15 : status row   (record, play, beat pulse, sequencer position)
+The modes write the 4-char text (show_looper_state / show_sequencer_state);
+an overlay can hold it (the menu, or code.py's volume / LOCK / CLEAR
+flash) -- see hold_text().
+
+Call update(now) once per main-loop pass: the NeoPixels are sent from
+there, rate-limited.
 """
 
-import adafruit_aw9523
 from adafruit_ht16k33 import segments
 
 import config
+import palette
+import pixels
 
 
 class DisplayManager:
     def __init__(self, i2c):
-        self._aw = adafruit_aw9523.AW9523(i2c, address=config.LED_DRIVER_ADDR)
-        # All 16 pins in constant-current LED mode (driven via set_constant_current,
-        # not the GPIO output register)
-        self._aw.LED_modes = 0xFFFF
-        self._aw.directions = 0xFFFF
-        self._led_state = 0x0000     # bitmask, bit N = LED N, desired state
-        self._led_hw_state = 0x0000  # bitmask reflecting what's currently on the wire
+        self._leds = pixels.PixelLeds()
 
-        self._seg = segments.Seg14x4(i2c, address=config.ALPHANUM_ADDR)
+        # auto_write off: with it on, print() already sends the text and the
+        # explicit show() sent it a second time. _write_text() is the one
+        # place text goes out, and only when it changed.
+        self._seg = segments.Seg14x4(i2c, address=config.ALPHANUM_ADDR,
+                                     auto_write=False)
         self._seg.brightness = 0.5
+        self._text      = None   # what the display shows now (None = unknown)
+        self._text_held = False
 
         self.clear()
 
-    # ── LED helpers ───────────────────────────────────────────────────────────
+    # ── LEDs ──────────────────────────────────────────────────────────────────
 
-    def set_led(self, index, on):
-        if on:
-            self._led_state |= (1 << index)
-        else:
-            self._led_state &= ~(1 << index)
-        self._flush_leds()
+    def set_pad_frame(self, frame):
+        """Color the pads from `frame`, a color per pad (pad n = frame[n])."""
+        for pad in range(len(frame)):
+            self._leds.set_pad(pad, frame[pad])
 
-    def set_leds_lower(self, bitmask8):
-        """Set LEDs 0-7 from the low 8 bits of bitmask8."""
-        self._led_state = (self._led_state & 0xFF00) | (bitmask8 & 0x00FF)
-        self._flush_leds()
-
-    def set_leds_upper(self, bitmask8):
-        """Set LEDs 8-15 from the low 8 bits of bitmask8."""
-        self._led_state = (self._led_state & 0x00FF) | ((bitmask8 & 0xFF) << 8)
-        self._flush_leds()
+    def set_key_color(self, button, color):
+        """Color a function key by button id."""
+        self._leds.set_button(button, color)
 
     def clear_leds(self):
-        self._led_state = 0x0000
-        self._flush_leds()
+        for pad in range(config.NUM_PADS):
+            self._leds.set_pad(pad, palette.OFF)
+        for row in config.FUNC_LAYOUT:
+            for button in row:
+                self._leds.set_button(button, palette.OFF)
 
-    def _flush_leds(self):
-        """AW9523 has no bulk register for constant-current mode (the `outputs`
-        register only drives pins in plain GPIO mode), so each LED has to be
-        pushed individually via set_constant_current. Only push the ones whose
-        on/off state actually changed since the last flush."""
-        changed = self._led_state ^ self._led_hw_state
-        if not changed:
-            return
-        for i in range(16):
-            if changed & (1 << i):
-                self._aw.set_constant_current(i, 100 if self._led_state & (1 << i) else 0)
-        self._led_hw_state = self._led_state
+    def update(self, now=None):
+        """Send pending LED changes. Pass the main loop's `now` (sends are
+        then rate-limited); without it they go out right away."""
+        self._leds.update(now)
+
+    @property
+    def pixels(self):
+        """The keys' pixels.PixelLeds, for direct access (io_test.py)."""
+        return self._leds
 
     # ── Alphanumeric display helpers ──────────────────────────────────────────
 
+    def hold_text(self, held):
+        """While held, the modes' state readouts (show_looper_state /
+        show_sequencer_state) write nothing, leaving the text to whoever
+        holds it. show() always writes."""
+        self._text_held = held
+
     def show(self, text):
         """Display up to 4 characters, left-aligned."""
-        self._seg.print(f"{text:<4}"[:4])
-        self._seg.show()
+        self._write_text(f"{text:<4}"[:4])
 
-    def show_bpm(self, bpm):
-        self._seg.print(f"b{bpm:3d}")
+    def _write_text(self, text):
+        """Send exactly 4 characters to the display, skipping the I2C write
+        (~1.7 ms at 100 kHz) if it already shows them -- the modes redraw
+        on every pad press and loop wrap, mostly with unchanged text."""
+        if text == self._text:
+            return
+        self._text = text
+        self._seg.print(text)
         self._seg.show()
 
     def show_mode(self, mode_name):
@@ -81,53 +90,22 @@ class DisplayManager:
 
     # ── Composite helpers used by modes ──────────────────────────────────────
 
-    def show_sequencer_state(self, steps_bitmask8, current_step_in_page,
-                             is_playing, selected_track, page):
-        """
-        steps_bitmask8 : which of the 8 displayed steps are on
-        current_step_in_page : 0-7, which step the playhead is on (or -1)
-        """
-        # Lower LEDs: step on/off, with playhead blink handled by caller
-        display_mask = steps_bitmask8
-        if is_playing and current_step_in_page >= 0:
-            # Playhead LED overrides: always lit regardless of step value
-            display_mask |= (1 << current_step_in_page)
-        self.set_leds_lower(display_mask)
+    def show_sequencer_state(self, selected_track):
+        if self._text_held:
+            return
+        self._write_text(f"{'T' + str(selected_track + 1):<4}")
 
-        # Upper LEDs: record/play status
-        upper = 0
-        if is_playing:
-            upper |= (1 << (config.LED_PLAY - 8))
-        self.set_leds_upper(upper)
-
-        # Display: track number and page
-        self._seg.print(f"T{selected_track + 1}P{page + 1}")
-        self._seg.show()
-
-    def show_looper_state(self, active_pads_mask, state_name, bar_count,
-                          layer_num=None, synced=False, transport_playing=True):
-        """active_pads_mask: pads currently/just-now sounding on the active layer.
-        transport_playing: whether the global transport is actually running --
-        a layer can be in PLAYING/OVERDUB content-state while paused, and the
-        LED should reflect audible reality, not just that content exists."""
-        self.set_leds_lower(active_pads_mask)
-
-        upper = 0
-        if "REC" in state_name:
-            upper |= (1 << (config.LED_RECORD - 8))
-        if transport_playing and ("PLY" in state_name or "DUB" in state_name):
-            upper |= (1 << (config.LED_PLAY - 8))
-        self.set_leds_upper(upper)
-
+    def show_looper_state(self, state_name, layer_num=None, synced=False):
+        if self._text_held:
+            return
         if synced:
-            self._seg.print("SREC")   # snap-recording in progress
+            self._write_text("SREC")   # snap-recording in progress
         elif state_name in ("IDLE", "PLY ") and layer_num is not None:
-            # The play LED already shows PLY (and IDLE has nothing to add),
-            # so show which layer the pads preview instead.
-            self._seg.print(f"{'L' + str(layer_num):<4}"[:4])
+            # The PLAY/STOP light already shows playing (and IDLE has
+            # nothing to add), so show which layer the pads play instead.
+            self._write_text(f"{'L' + str(layer_num):<4}"[:4])
         else:
-            self._seg.print(f"{state_name:<4}"[:4])
-        self._seg.show()
+            self._write_text(f"{state_name:<4}"[:4])
 
     def clear(self):
         self.clear_leds()

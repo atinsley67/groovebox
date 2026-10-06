@@ -1,0 +1,35 @@
+# Timing, first NeoKey run (Phase 2), 2026-10-03: NeoKey 4x4 + 2x5 on keypad,
+# NeoPixels, I2C display at 400 kHz. Similar session to baseline-display-fix.txt:
+# idle at first, then busy playback; the 113 ms pass is a LOAD, the 1324 ms a SAVE.
+# vs the breadboard: scan 0.40 -> 0.10 ms, idle pass 0.65 -> 0.42 ms, GC 6.4 ->
+# 5.3 ms -- but >5ms passes ~34 -> ~110 (idle) and ~33 -> ~150 (busy) per 5 s,
+# and the busy pass average rose 1.3 -> 1.55 ms. Cause not yet known.
+TIMING passes 12624 avg 0.40ms worst 51.33ms >5ms 119 >10ms 1 | scan avg 0.10ms worst 5.68ms | session worst 51.33ms | gc 5.31ms free 298k
+TIMING passes 12275 avg 0.41ms worst 7.72ms >5ms 116 >10ms 0 | scan avg 0.09ms worst 5.68ms | session worst 51.33ms | gc 5.31ms free 298k
+TIMING passes 11362 avg 0.44ms worst 7.45ms >5ms 110 >10ms 0 | scan avg 0.09ms worst 5.58ms | session worst 51.33ms | gc 5.25ms free 298k
+TIMING passes 11393 avg 0.44ms worst 12.60ms >5ms 108 >10ms 1 | scan avg 0.09ms worst 5.58ms | session worst 51.33ms | gc 5.31ms free 298k
+TIMING passes 11231 avg 0.44ms worst 62.13ms >5ms 109 >10ms 1 | scan avg 0.09ms worst 5.62ms | session worst 62.13ms | gc 5.28ms free 297k
+TIMING passes 11763 avg 0.42ms worst 7.97ms >5ms 111 >10ms 0 | scan avg 0.09ms worst 5.55ms | session worst 62.13ms | gc 5.07ms free 297k
+TIMING passes 8717 avg 0.57ms worst 6.50ms >5ms 158 >10ms 0 | scan avg 0.10ms worst 5.65ms | session worst 62.13ms | gc 5.07ms free 297k
+TIMING passes 11784 avg 0.42ms worst 7.35ms >5ms 113 >10ms 0 | scan avg 0.09ms worst 5.43ms | session worst 62.13ms | gc 5.22ms free 297k
+TIMING passes 11309 avg 0.44ms worst 12.66ms >5ms 110 >10ms 2 | scan avg 0.09ms worst 5.55ms | session worst 62.13ms | gc 5.22ms free 297k
+TIMING passes 6185 avg 0.81ms worst 113.19ms >5ms 131 >10ms 1 | scan avg 0.10ms worst 6.77ms | session worst 113.19ms | gc 6.68ms free 293k
+TIMING passes 3383 avg 1.47ms worst 8.73ms >5ms 134 >10ms 0 | scan avg 0.12ms worst 6.68ms | session worst 113.19ms | gc 5.37ms free 293k
+TIMING passes 3361 avg 1.48ms worst 8.73ms >5ms 137 >10ms 0 | scan avg 0.12ms worst 6.84ms | session worst 113.19ms | gc 6.44ms free 293k
+TIMING passes 3389 avg 1.47ms worst 11.44ms >5ms 140 >10ms 4 | scan avg 0.13ms worst 6.74ms | session worst 113.19ms | gc 6.16ms free 293k
+TIMING passes 3270 avg 1.53ms worst 10.89ms >5ms 141 >10ms 2 | scan avg 0.12ms worst 6.99ms | session worst 113.19ms | gc 5.40ms free 293k
+TIMING passes 3323 avg 1.50ms worst 11.14ms >5ms 145 >10ms 1 | scan avg 0.12ms worst 7.08ms | session worst 113.19ms | gc 5.43ms free 293k
+TIMING passes 3336 avg 1.50ms worst 9.74ms >5ms 141 >10ms 0 | scan avg 0.13ms worst 6.96ms | session worst 113.19ms | gc 5.40ms free 293k
+TIMING passes 3181 avg 1.57ms worst 16.36ms >5ms 142 >10ms 5 | scan avg 0.12ms worst 7.02ms | session worst 113.19ms | gc 6.20ms free 292k
+TIMING passes 3179 avg 1.57ms worst 26.28ms >5ms 150 >10ms 3 | scan avg 0.14ms worst 7.08ms | session worst 113.19ms | gc 6.93ms free 291k
+TIMING passes 3210 avg 1.55ms worst 18.43ms >5ms 148 >10ms 3 | scan avg 0.11ms worst 7.14ms | session worst 113.19ms | gc 5.55ms free 291k
+TIMING passes 3197 avg 1.56ms worst 10.04ms >5ms 152 >10ms 1 | scan avg 0.12ms worst 7.23ms | session worst 113.19ms | gc 6.23ms free 292k
+TIMING passes 3212 avg 1.55ms worst 17.58ms >5ms 152 >10ms 6 | scan avg 0.12ms worst 7.11ms | session worst 113.19ms | gc 5.46ms free 291k
+TIMING passes 3200 avg 1.56ms worst 10.68ms >5ms 152 >10ms 2 | scan avg 0.12ms worst 7.08ms | session worst 113.19ms | gc 5.52ms free 291k
+TIMING passes 3219 avg 1.55ms worst 15.53ms >5ms 150 >10ms 4 | scan avg 0.11ms worst 7.14ms | session worst 113.19ms | gc 6.29ms free 292k
+TIMING passes 3205 avg 1.56ms worst 17.73ms >5ms 157 >10ms 4 | scan avg 0.12ms worst 6.96ms | session worst 113.19ms | gc 6.20ms free 292k
+TIMING passes 2828 avg 1.76ms worst 11.05ms >5ms 140 >10ms 2 | scan avg 0.13ms worst 7.05ms | session worst 113.19ms | gc 5.46ms free 292k
+TIMING passes 2811 avg 1.77ms worst 17.21ms >5ms 146 >10ms 4 | scan avg 0.13ms worst 7.32ms | session worst 113.19ms | gc 6.81ms free 291k
+TIMING passes 3153 avg 1.58ms worst 9.49ms >5ms 148 >10ms 0 | scan avg 0.13ms worst 7.11ms | session worst 113.19ms | gc 6.65ms free 291k
+TIMING passes 3024 avg 2.06ms worst 1324.10ms >5ms 145 >10ms 8 | scan avg 0.13ms worst 7.29ms | session worst 1324.10ms | gc 6.38ms free 291k
+TIMING passes 3060 avg 1.62ms worst 12.05ms >5ms 147 >10ms 1 | scan avg 0.12ms worst 7.45ms | session worst 1324.10ms | gc 5.49ms free 292k

@@ -7,6 +7,25 @@ from sound_presets import (build_kit_instance, instantiate_instrument,
                            INSTRUMENT_NAMES, WAVEFORM_TABLES)
 
 _VIBRATO_MAX_BEND = 1.0 / 12  # bend depth (1 semitone) at full LFO depth
+_FULL_VOLUME      = 100       # channel volumes are whole percents, 0-100
+
+
+def _clamp_volume(pct):
+    return max(0, min(_FULL_VOLUME, int(pct)))
+
+
+def _restored_volumes(saved, count):
+    """Saved channel volumes, clamped. Any that are missing or malformed --
+    e.g. a groove saved before channel volumes existed -- load at full."""
+    if not isinstance(saved, list):
+        saved = []
+    volumes = []
+    for i in range(count):
+        value = saved[i] if i < len(saved) else _FULL_VOLUME
+        if not isinstance(value, (int, float)):
+            value = _FULL_VOLUME
+        volumes.append(_clamp_volume(value))
+    return volumes
 
 
 def _merged_params(target, saved):
@@ -34,13 +53,22 @@ class SynthEngine:
         self._pending_releases = []
 
         # The sequencer's own kit (track n = sound n), independent of any
-        # loop layer's kit copy.
-        self._sequencer_kit = build_kit_instance()
+        # loop layer's kit copy: the kit's first NUM_TRACKS sounds.
+        self._sequencer_kit = build_kit_instance(config.NUM_TRACKS)
+
+        # Channel volumes (0-100 %), one per sequencer track and one per
+        # loop layer, scaling every sound in the channel on top of its own
+        # AMP param. They belong to the track/layer slot, not to the
+        # instrument instance in it, so a layer keeps its level across an
+        # ASSIGN swap.
+        self._track_volumes = [_FULL_VOLUME] * config.NUM_TRACKS
+        self._layer_volumes = [_FULL_VOLUME] * config.NUM_LOOP_LAYERS
 
         # One independent instrument instance per loop layer (see
         # sound_presets.instantiate_instrument). Default mapping is layer i
         # = instrument id i: layer 0 = KIT, layers 1-7 = BASS..PAD.
-        self._channels = [self._new_channel(i) for i in range(config.NUM_LOOP_LAYERS)]
+        self._channels = [self._new_channel(i, self._layer_gain(i))
+                          for i in range(config.NUM_LOOP_LAYERS)]
 
     # ── Sequencer API (sequencer's own kit) ───────────────────────────────────
 
@@ -79,7 +107,7 @@ class SynthEngine:
 
     def trigger_layer_pad(self, layer_idx, pad_index):
         """Press a pad in the context of a loop layer: kit channels play one
-        of their 8 sounds; melodic channels play a scale degree on the
+        of their 16 sounds; melodic channels play a scale degree on the
         channel's own voice (plus a detuned unison voice, if that voice's
         'detune' param is nonzero)."""
         channel = self._channels[layer_idx]
@@ -103,7 +131,7 @@ class SynthEngine:
         """Release a loop layer's note for this pad (PAD_UP, or a recorded
         note-off during playback).
 
-        Mono-voice guard: a melodic channel is one voice shared by all 8
+        Mono-voice guard: a melodic channel is one voice shared by all the
         pads, so a release that belongs to an earlier pad (e.g. legato
         playing, or independently-quantized starts on playback) must not
         cut off a newer note on a different pad -- it's ignored unless
@@ -143,13 +171,35 @@ class SynthEngine:
         restore_channel() with its edits intact."""
         old = self._channels[layer_idx]
         self._silence_channel(old)
-        self._channels[layer_idx] = self._new_channel(instrument_id)
+        self._channels[layer_idx] = self._new_channel(instrument_id,
+                                                      self._layer_gain(layer_idx))
         return old
 
     def restore_channel(self, layer_idx, channel):
-        """Put a channel previously returned by assign_channel() back as-is."""
+        """Put a channel previously returned by assign_channel() back as-is
+        (re-levelled to the slot's current volume)."""
         self._silence_channel(self._channels[layer_idx])
         self._channels[layer_idx] = channel
+        self._apply_channel_level(layer_idx)
+
+    # ── Channel volume (code.py's UP/DOWN outside the menu) ───────────────────
+
+    def channel_volume(self, layer_idx):
+        """A loop layer's volume, 0-100 (%)."""
+        return self._layer_volumes[layer_idx]
+
+    def set_channel_volume(self, layer_idx, pct):
+        self._layer_volumes[layer_idx] = _clamp_volume(pct)
+        self._apply_channel_level(layer_idx)
+
+    def track_volume(self, track_idx):
+        """A sequencer track's volume, 0-100 (%)."""
+        return self._track_volumes[track_idx]
+
+    def set_track_volume(self, track_idx, pct):
+        self._track_volumes[track_idx] = _clamp_volume(pct)
+        self._apply_drum_level(self._sequencer_kit[track_idx],
+                               self._track_gain(track_idx))
 
     # ── Sound-editor parameter access ─────────────────────────────────────────
 
@@ -160,14 +210,14 @@ class SynthEngine:
     def set_channel_param(self, layer_idx, pad_or_none, key, value):
         target, apply = self._channel_target(layer_idx, pad_or_none)
         target["params"][key] = value
-        apply(target)
+        apply(target, self._layer_gain(layer_idx))
 
     def reset_channel(self, layer_idx, pad_or_none):
         """Restore a channel's voice (or one of its kit sounds) to the sound
         it was built with."""
         target, apply = self._channel_target(layer_idx, pad_or_none)
         target["params"] = dict(target["defaults"])
-        apply(target)
+        apply(target, self._layer_gain(layer_idx))
 
     def get_drum_param(self, pad_idx, key):
         return self._sequencer_kit[pad_idx]["params"][key]
@@ -175,20 +225,20 @@ class SynthEngine:
     def set_drum_param(self, pad_idx, key, value):
         sound = self._sequencer_kit[pad_idx]
         sound["params"][key] = value
-        self._apply_drum_params(sound)
+        self._apply_drum_params(sound, self._track_gain(pad_idx))
 
     def reset_drum(self, pad_idx):
         """Restore a sequencer kit sound to the sound it was built with."""
         sound = self._sequencer_kit[pad_idx]
         sound["params"] = dict(sound["defaults"])
-        self._apply_drum_params(sound)
+        self._apply_drum_params(sound, self._track_gain(pad_idx))
 
     # ── Grooves (called by code.py for the menu's SAVE / LOAD) ────────────────
 
     def snapshot_sounds(self):
-        """Every sound edit as plain data: the sequencer kit's 8 sounds, and
-        each loop layer's instrument id plus its params (one dict for a
-        melodic voice, one per pad for a kit)."""
+        """Every sound edit as plain data: the sequencer kit's sounds, each
+        loop layer's instrument id plus its params (one dict for a melodic
+        voice, one per pad for a kit), and every track and layer volume."""
         layers = []
         for channel in self._channels:
             if channel["type"] == "melodic":
@@ -197,15 +247,24 @@ class SynthEngine:
                 params = [dict(sound["params"]) for sound in channel["data"]]
             layers.append({"id": channel["id"], "params": params})
         return {"kit": [dict(sound["params"]) for sound in self._sequencer_kit],
-                "layers": layers}
+                "layers": layers,
+                "track_vol": list(self._track_volumes),
+                "layer_vol": list(self._layer_volumes)}
 
     def restore_sounds(self, data):
         """Put back a snapshot_sounds(). Every layer gets a fresh instance of
         its saved instrument (silencing whatever it had), then the saved
-        params on top -- see _merged_params."""
+        params on top -- see _merged_params. Volumes go back first, so every
+        sound is levelled as it's rebuilt."""
+        self._track_volumes = _restored_volumes(data.get("track_vol"),
+                                                len(self._track_volumes))
+        self._layer_volumes = _restored_volumes(data.get("layer_vol"),
+                                                len(self._layer_volumes))
+
         for sound, saved in zip(self._sequencer_kit, data.get("kit", [])):
             sound["params"] = _merged_params(sound, saved)
-            self._apply_drum_params(sound)
+        for track, sound in enumerate(self._sequencer_kit):
+            self._apply_drum_params(sound, self._track_gain(track))
 
         saved_layers = data.get("layers", [])
         for idx in range(len(self._channels)):
@@ -218,24 +277,44 @@ class SynthEngine:
             saved   = entry.get("params")
             if not saved:
                 continue
+            gain = self._layer_gain(idx)
             if channel["type"] == "melodic":
                 voice = channel["data"]
                 voice["params"] = _merged_params(voice, saved)
-                self._apply_voice_params(voice)
+                self._apply_voice_params(voice, gain)
             else:
                 for sound, sound_saved in zip(channel["data"], saved):
                     sound["params"] = _merged_params(sound, sound_saved)
-                    self._apply_drum_params(sound)
+                    self._apply_drum_params(sound, gain)
 
     def _channel_target(self, layer_idx, pad_or_none):
-        """(params-owning dict, apply fn) for a channel: melodic channels
-        have one voice (pad ignored); kit channels pick a sound by pad."""
+        """(params-owning dict, apply(target, gain) fn) for a channel:
+        melodic channels have one voice (pad ignored); kit channels pick a
+        sound by pad."""
         channel = self._channels[layer_idx]
         if channel["type"] == "melodic":
             return channel["data"], self._apply_voice_params
         return channel["data"][pad_or_none or 0], self._apply_drum_params
 
-    def _apply_voice_params(self, voice):
+    def _layer_gain(self, layer_idx):
+        return self._layer_volumes[layer_idx] / _FULL_VOLUME
+
+    def _track_gain(self, track_idx):
+        return self._track_volumes[track_idx] / _FULL_VOLUME
+
+    def _apply_channel_level(self, layer_idx):
+        """Re-level every sound in a loop layer after its volume changed."""
+        channel = self._channels[layer_idx]
+        gain    = self._layer_gain(layer_idx)
+        if channel["type"] == "melodic":
+            self._apply_voice_level(channel["data"], gain)
+        else:
+            for sound in channel["data"]:
+                self._apply_drum_level(sound, gain)
+
+    def _apply_voice_params(self, voice, gain):
+        """Push a melodic voice's params onto its notes. gain is the
+        channel volume (0.0-1.0) scaling the AMP param."""
         params   = voice["params"]
         waveform = WAVEFORM_TABLES[params["wave"]]
         notes    = (voice["note"], voice["detune_note"])
@@ -277,7 +356,19 @@ class SynthEngine:
             if ring_freq and note.ring_waveform is None:
                 note.ring_waveform = WAVEFORM_TABLES[1]  # square: bright ring carrier
 
-        amp = params["amp"]
+        self._apply_voice_level(voice, gain)
+
+    def _apply_voice_level(self, voice, gain):
+        """A melodic voice's amplitude (both notes, and the tremolo range)
+        and pitch-LFO routing: AMP scaled by the channel volume. Safe to run
+        on its own after a volume change -- it only touches what depends on
+        the level, and the vibrato/tremolo routing it shares with it."""
+        params = voice["params"]
+        notes  = (voice["note"], voice["detune_note"])
+        lfo    = voice["lfo"]
+        dest   = params["lfo_dest"]
+        depth  = params["lfo_depth"]
+        amp    = params["amp"] * gain
         if dest == 1 and depth > 0:  # vibrato: wobble pitch around center
             lfo.scale, lfo.offset = depth * _VIBRATO_MAX_BEND, 0.0
             for note in notes:
@@ -290,10 +381,12 @@ class SynthEngine:
             for note in notes:
                 note.bend, note.amplitude = 0.0, amp
 
-    def _apply_drum_params(self, sound):
+    def _apply_drum_params(self, sound, gain):
+        """Push a kit sound's params onto its note. gain is the channel
+        volume (0.0-1.0) scaling the AMP param."""
         params, note = sound["params"], sound["note"]
         note.frequency = params["tune"]
-        note.amplitude = params["amp"]
+        self._apply_drum_level(sound, gain)
 
         old_env = note.envelope
         note.envelope = synthio.Envelope(
@@ -313,16 +406,23 @@ class SynthEngine:
         if ring_freq and note.ring_waveform is None:
             note.ring_waveform = WAVEFORM_TABLES[1]  # square: bright ring carrier
 
+    def _apply_drum_level(self, sound, gain):
+        sound["note"].amplitude = sound["params"]["amp"] * gain
+
     # ── Private ───────────────────────────────────────────────────────────────
 
-    def _new_channel(self, instrument_id):
+    def _new_channel(self, instrument_id, gain):
+        """A fresh instance of `instrument_id`, levelled for a slot at `gain`."""
         channel = instantiate_instrument(instrument_id)
         if channel["type"] == "melodic":
             # Most voices' construction args already match their params 1:1,
             # but a voice can ship with e.g. LFO routing already engaged --
             # apply once up front so that's live immediately, not just
             # after the first edit.
-            self._apply_voice_params(channel["data"])
+            self._apply_voice_params(channel["data"], gain)
+        else:
+            for sound in channel["data"]:
+                self._apply_drum_level(sound, gain)
         return channel
 
     def _silence_channel(self, channel):

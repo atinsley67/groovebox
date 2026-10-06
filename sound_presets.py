@@ -5,10 +5,11 @@ Two kinds of instrument, both instantiable any number of times so every
 channel that uses one owns an independent copy (its own Notes, Envelopes,
 Biquads, LFOs and params -- editing one copy never touches another):
 
-KIT (instrument id 0) -- eight synthio sounds, one per pad: a full drum kit
-(2 kicks, 2 hi-hats, snare, clap, cowbell, woodblock). build_kit_instance()
-returns one fresh copy. The sequencer owns one copy for its 8 tracks; any
-loop layer assigned KIT gets its own.
+KIT (instrument id 0) -- sixteen synthio sounds, one per pad: a full drum
+kit (2 kicks, 2 hi-hats, snare, clap, cowbell, woodblock on the top two
+rows; 3 toms, rimshot, shaker, conga, ride, crash on the bottom two).
+build_kit_instance() returns one fresh copy. Any loop layer assigned KIT
+gets its own; the sequencer owns a copy of the first 8, one per track.
 
 All percussive sounds have sustain_level=0 so releasing immediately
 after triggering lets the decay play out naturally. The noise-heavy voices
@@ -19,10 +20,11 @@ once shaped by an envelope and filter. This is the same trick used in
 Adafruit's own synthio drum examples.
 
 Melodic voices (instrument ids 1-7, MELODIC_VOICE_SPECS) -- one voice per
-channel. Each voice's 8 pads play a minor pentatonic run in equal
-temperament; all voices share the same tonic and differ only by octave, so
-pads select a note (never a different key) and any voices played together
-stay in tune with each other.
+channel. Each voice's 16 pads play three octaves of a minor pentatonic run
+in equal temperament, lowest at the bottom left (keymap.NOTE_OF_PAD); all
+voices share the same tonic and differ only by octave, so pads select a
+note (never a different key) and any voices played together stay in tune
+with each other.
 
 instantiate_instrument(id) is the one factory the engine uses to hand a
 channel a brand-new instance. Waveform tables are built once at import and
@@ -34,6 +36,7 @@ import math
 import random
 import synthio
 
+import keymap
 import synth_params
 
 _W = 256  # waveform table length
@@ -93,6 +96,9 @@ _NOISE    = _noise()
 # reproduce 100-300 Hz fine.
 _HOUSE_KICK_WAVE = _harmonic_sine([(2, 0.4), (3, 0.2)])
 _DNB_KICK_WAVE   = _harmonic_sine([(2, 0.5), (3, 0.3), (4, 0.15)])
+# Toms and conga: a lighter touch of overtones than the kicks, so they read
+# as skin rather than boom.
+_TOM_WAVE        = _harmonic_sine([(2, 0.25), (3, 0.1)])
 
 
 # ── Kit ───────────────────────────────────────────────────────────────────────
@@ -250,16 +256,146 @@ def _build_woodblock():
     return _drum_entry("WOOD", note, 0)
 
 
-# Pad order: pad n plays KIT_SOUND_BUILDERS[n]().
+def _tom(name, frequency, decay, sweep):
+    # A pitched skin: the kicks' falling-pitch trick, gentler and higher,
+    # so the three toms sit a step apart as a set. sweep: the drop, in
+    # octaves, over the first ~0.1 s.
+    lfo = synthio.LFO(
+        waveform=_RAMP, rate=1 / 0.1, scale=sweep / 2, offset=sweep / 2, once=True,
+    )
+    note = synthio.Note(
+        frequency=frequency,
+        waveform=_TOM_WAVE,
+        envelope=synthio.Envelope(
+            attack_time=0.002, attack_level=1.0,
+            decay_time=decay,  sustain_level=0.0,
+            release_time=0.03,
+        ),
+        bend=lfo,
+        filter=_filter(synthio.FilterMode.LOW_PASS, 2500, 0.9),
+        amplitude=0.9,
+    )
+    return _drum_entry(name, note, 0, bend_lfo=lfo)
+
+
+def _build_low_tom():
+    return _tom("LTOM", 98, 0.38, 0.5)
+
+
+def _build_mid_tom():
+    return _tom("MTOM", 131, 0.32, 0.45)
+
+
+def _build_high_tom():
+    return _tom("HTOM", 175, 0.26, 0.4)
+
+
+def _build_rimshot():
+    # 808-style rim: two inharmonic tones (square ring-modded, ~500 and
+    # ~1700 Hz) through a band-pass, gone in a few tens of ms -- a click
+    # with a pitch, sharper and brighter than the woodblock.
+    note = synthio.Note(
+        frequency=500,
+        waveform=_SQUARE,
+        envelope=synthio.Envelope(
+            attack_time=0.001, attack_level=1.0,
+            decay_time=0.03,   sustain_level=0.0,
+            release_time=0.005,
+        ),
+        ring_frequency=1700, ring_waveform=_SQUARE,
+        filter=_filter(synthio.FilterMode.BAND_PASS, 1800, 2.0),
+        amplitude=0.8,
+    )
+    return _drum_entry("RIM ", note, 0)
+
+
+def _build_shaker():
+    # Noise like the hats, but a soft attack (the beads arriving a little
+    # spread out) and a band-pass rather than high-pass: a "shh", not a "tch".
+    note = synthio.Note(
+        frequency=7000,
+        waveform=_NOISE,
+        envelope=synthio.Envelope(
+            attack_time=0.015, attack_level=1.0,
+            decay_time=0.07,   sustain_level=0.0,
+            release_time=0.01,
+        ),
+        filter=_filter(synthio.FilterMode.BAND_PASS, 6000, 1.0),
+        amplitude=0.6,
+    )
+    return _drum_entry("SHKR", note, 0)
+
+
+def _build_conga():
+    # A tuned hand drum: higher than the toms, a quick small pitch snap and
+    # a resonant low-pass for its rounded "doom".
+    lfo = synthio.LFO(
+        waveform=_RAMP, rate=1 / 0.03, scale=0.15, offset=0.15, once=True,
+    )
+    note = synthio.Note(
+        frequency=330,
+        waveform=_TOM_WAVE,
+        envelope=synthio.Envelope(
+            attack_time=0.001, attack_level=1.0,
+            decay_time=0.2,    sustain_level=0.0,
+            release_time=0.02,
+        ),
+        bend=lfo,
+        filter=_filter(synthio.FilterMode.LOW_PASS, 2200, 1.6),
+        amplitude=0.85,
+    )
+    return _drum_entry("CONG", note, 0, bend_lfo=lfo)
+
+
+def _build_ride():
+    # The cowbell's ring-mod trick an octave up and through a high-pass: a
+    # cloud of inharmonic partials with no body -- a "ping" that rings on.
+    note = synthio.Note(
+        frequency=800,
+        waveform=_SQUARE,
+        envelope=synthio.Envelope(
+            attack_time=0.001, attack_level=1.0,
+            decay_time=1.0,    sustain_level=0.0,
+            release_time=0.1,
+        ),
+        ring_frequency=1170, ring_waveform=_SQUARE,
+        filter=_filter(synthio.FilterMode.HIGH_PASS, 4500, 0.9),
+        amplitude=0.45,
+    )
+    return _drum_entry("RIDE", note, 0)
+
+
+def _build_crash():
+    # Noise ring-modded by a square for metal, opened wide and left to
+    # wash out (near the editor's 1.5 s decay ceiling).
+    note = synthio.Note(
+        frequency=9000,
+        waveform=_NOISE,
+        envelope=synthio.Envelope(
+            attack_time=0.002, attack_level=1.0,
+            decay_time=1.4,    sustain_level=0.0,
+            release_time=0.1,
+        ),
+        ring_frequency=1300, ring_waveform=_SQUARE,
+        filter=_filter(synthio.FilterMode.HIGH_PASS, 3000, 0.7),
+        amplitude=0.55,
+    )
+    return _drum_entry("CRSH", note, 0)
+
+
+# Pad order: pad n plays KIT_SOUND_BUILDERS[n]() (pads read row by row from
+# the top left, so the original 8 are the top two rows).
 KIT_SOUND_BUILDERS = [
-    _build_house_kick, _build_dnb_kick, _build_chh, _build_ohh,
-    _build_snare, _build_clap, _build_cowbell, _build_woodblock,
+    _build_house_kick, _build_dnb_kick, _build_chh,      _build_ohh,
+    _build_snare,      _build_clap,     _build_cowbell,  _build_woodblock,
+    _build_low_tom,    _build_mid_tom,  _build_high_tom, _build_rimshot,
+    _build_shaker,     _build_conga,    _build_ride,     _build_crash,
 ]
 
-
-def build_kit_instance():
+def build_kit_instance(count=None):
     """
-    Return a fresh list of 8 dicts, each describing one pad's sound.
+    Return a fresh list of dicts, each describing one pad's sound: the
+    whole kit, or only its first `count` sounds.
     Keys: 'note' (synthio.Note), 'hold_ms' (how long to hold before release),
     'name', 'params'/'defaults' (see _drum_entry), 'bend_lfo'.
 
@@ -268,12 +404,7 @@ def build_kit_instance():
         # after hold_ms, synth.release([s['note']])
     For sustain_level=0 sounds, hold_ms=0 is fine; the envelope handles decay.
     """
-    return [build() for build in KIT_SOUND_BUILDERS]
-
-
-def build_sounds():
-    """Alias kept for the sequencer's own kit -- see build_kit_instance()."""
-    return build_kit_instance()
+    return [build() for build in KIT_SOUND_BUILDERS[:count]]
 
 
 def _filter(mode, frequency, q=0.7071067811865475):
@@ -308,16 +439,21 @@ def _drum_entry(name, note, hold_ms, bend_lfo=None):
 # ── Melodic voices ────────────────────────────────────────────────────────────
 
 # Minor pentatonic, in standard 12-tone equal temperament (semitones from
-# root): only 5 notes/octave, so this runs one note past the octave to fill
-# all 8 pads. No half-step-apart degrees anywhere in it, which matters more
+# root): 5 notes/octave, so 16 pads run three octaves and land on the root
+# again. No half-step-apart degrees anywhere in it, which matters more
 # here than in a fixed chord progression -- different voices are layered
 # live/independently, so whatever pads happen to land together need to stay
 # consonant on their own, not just when following a written chart.
-_PENTATONIC_SEMITONES = (0, 3, 5, 7, 10, 12, 15, 17)
+_PENTATONIC_SEMITONES = (0, 3, 5, 7, 10,
+                         12, 15, 17, 19, 22,
+                         24, 27, 29, 31, 34,
+                         36)
 
-def _pentatonic_scale(root_freq):
-    """8 frequencies: root_freq's minor pentatonic run, pad 0 = root."""
-    return [root_freq * 2 ** (s / 12) for s in _PENTATONIC_SEMITONES]
+def _pad_scale(root_freq):
+    """One frequency per pad: root_freq's minor pentatonic run, laid out by
+    keymap.NOTE_OF_PAD (the root at the bottom left)."""
+    return [root_freq * 2 ** (_PENTATONIC_SEMITONES[note] / 12)
+            for note in keymap.NOTE_OF_PAD]
 
 
 # Every voice is an octave transposition of the same tonic (_ROOT_HZ)
@@ -371,7 +507,7 @@ def build_melodic_voice_instance(spec):
                        params['detune'] != 0
       'lfo'          - a persistent synthio.LFO reused for vibrato/tremolo/
                        filter-wobble, whichever 'lfo_dest' selects
-      'scale'        - 8 frequencies for that voice (pad 0..7)
+      'scale'        - the frequency each pad plays (indexed by pad)
       'hold_ms'      - like the kit's, ms to hold before auto-release
                        (a soft ceiling on live-held notes -- see synth_engine;
                        the sustained voices ship with several seconds of
@@ -385,7 +521,8 @@ def build_melodic_voice_instance(spec):
     a voice can ship with e.g. LFO routing already engaged.
     """
     name, wave_idx, octave, atk, dec, sus, rel, hold_ms = spec
-    scale  = _pentatonic_scale(_ROOT_HZ * 2 ** octave)
+    root   = _ROOT_HZ * 2 ** octave
+    scale  = _pad_scale(root)
     params = synth_params.default_params(wave_idx, atk, dec, sus, rel)
     params.update(MELODIC_VOICE_OVERRIDES.get(name, {}))
 
@@ -402,9 +539,9 @@ def build_melodic_voice_instance(spec):
 
     # Primary and detune notes share the same Envelope/Biquad instances so
     # a param edit only has to update one object to affect both oscillators.
-    note = synthio.Note(frequency=scale[0], waveform=waveform,
+    note = synthio.Note(frequency=root, waveform=waveform,
                          envelope=envelope, filter=filt)
-    detune_note = synthio.Note(frequency=scale[0], waveform=waveform,
+    detune_note = synthio.Note(frequency=root, waveform=waveform,
                                 envelope=envelope, filter=filt)
 
     return {
@@ -429,7 +566,7 @@ INSTRUMENT_NAMES = ["KIT "] + [spec[0] for spec in MELODIC_VOICE_SPECS]
 def instantiate_instrument(instrument_id):
     """A brand-new, independent instance of instrument `instrument_id`:
     {"type": "kit"|"melodic", "id": ..., "name": ...,
-     "data": <list of 8 kit sound dicts> | <one melodic voice dict>}."""
+     "data": <list of 16 kit sound dicts> | <one melodic voice dict>}."""
     if instrument_id == 0:
         return {"type": "kit", "id": 0, "name": INSTRUMENT_NAMES[0],
                 "data": build_kit_instance()}

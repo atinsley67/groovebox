@@ -7,10 +7,10 @@ exercise standalone.
 
 PARAM_SCHEMA covers the melodic voices (see
 synth_engine.SynthEngine._apply_voice_params). DRUM_PARAM_SCHEMA is a
-smaller, range-limited schema for the 8 drum-kit sounds -- the
+smaller, range-limited schema for the drum-kit sounds -- the
 sequencer's kit, or any loop layer assigned KIT (see
 SynthEngine._apply_drum_params). menu.py picks whichever schema applies
-and drives the pad grid / display from it.
+and shows it as a list, in the order given here.
 """
 
 # Waveform count/order must match sound_presets.WAVEFORM_TABLES.
@@ -18,92 +18,78 @@ NUM_WAVEFORMS  = 4
 WAVEFORM_NAMES = ["SIN ", "SQR ", "SAW ", "TRI "]
 LFO_DEST_NAMES = ["OFF ", "VIB ", "TREM", "FILT"]
 
-PAGE_1 = 0
-PAGE_2 = 1
-
-# Each entry describes one pad slot. kind:
+# Each entry is one item of the SOUND list. kind:
 #   "continuous" - stepped by +/-, either "ratio" (log-scaled, wide-range
 #                   params like time/frequency) or "linear" (fixed delta,
 #                   for already-bounded 0..1-ish params)
 #   "discrete"   - cycles through `count` integer values (0..count-1)
-#   "action"     - no value; menu.py triggers it on MENU while it's selected
+#   "action"     - no value; menu.py triggers it on MENU (after a confirm)
 PARAM_SCHEMA = [
-    {"page": PAGE_1, "pad": 0, "key": "amp", "label": "AMP ",
+    {"key": "amp", "label": "AMP ",
      "kind": "continuous", "step_kind": "linear", "step": 0.05,
      "lo": 0.0, "hi": 1.0, "fmt": "pct"},
-    {"page": PAGE_1, "pad": 1, "key": "wave", "label": "WAVE",
+    {"key": "wave", "label": "WAVE",
      "kind": "discrete", "count": NUM_WAVEFORMS, "fmt": "wave"},
-    {"page": PAGE_1, "pad": 2, "key": "attack", "label": "ATK ",
+    {"key": "attack", "label": "ATK ",
      "kind": "continuous", "step_kind": "ratio", "ratio": 1.2,
      "lo": 0.001, "hi": 2.0, "fmt": "time"},
-    {"page": PAGE_1, "pad": 3, "key": "decay", "label": "DEC ",
+    {"key": "decay", "label": "DEC ",
      "kind": "continuous", "step_kind": "ratio", "ratio": 1.2,
      "lo": 0.01, "hi": 2.0, "fmt": "time"},
-    {"page": PAGE_1, "pad": 4, "key": "sustain", "label": "SUS ",
+    {"key": "sustain", "label": "SUS ",
      "kind": "continuous", "step_kind": "linear", "step": 0.05,
      "lo": 0.0, "hi": 1.0, "fmt": "pct"},
-    {"page": PAGE_1, "pad": 5, "key": "release", "label": "REL ",
+    {"key": "release", "label": "REL ",
      "kind": "continuous", "step_kind": "ratio", "ratio": 1.2,
      "lo": 0.01, "hi": 3.0, "fmt": "time"},
-    {"page": PAGE_1, "pad": 6, "key": "cutoff", "label": "CUT ",
+    {"key": "cutoff", "label": "CUT ",
      "kind": "continuous", "step_kind": "ratio", "ratio": 1.12,
      "lo": 200.0, "hi": 10000.0, "fmt": "hz"},
-    {"page": PAGE_1, "pad": 7, "key": "resonance", "label": "RES ",
+    {"key": "resonance", "label": "RES ",
      "kind": "continuous", "step_kind": "ratio", "ratio": 1.15,
      "lo": 0.5, "hi": 8.0, "fmt": "q"},
-
-    {"page": PAGE_2, "pad": 0, "key": "lfo_rate", "label": "LFOR",
+    {"key": "lfo_rate", "label": "LFOR",
      "kind": "continuous", "step_kind": "ratio", "ratio": 1.25,
      "lo": 0.1, "hi": 20.0, "fmt": "hz"},
-    {"page": PAGE_2, "pad": 1, "key": "lfo_depth", "label": "LFOD",
+    {"key": "lfo_depth", "label": "LFOD",
      "kind": "continuous", "step_kind": "linear", "step": 0.05,
      "lo": 0.0, "hi": 1.0, "fmt": "pct"},
-    {"page": PAGE_2, "pad": 2, "key": "lfo_dest", "label": "LDST",
+    {"key": "lfo_dest", "label": "LDST",
      "kind": "discrete", "count": 4, "fmt": "lfo_dest"},
-    {"page": PAGE_2, "pad": 3, "key": "ring", "label": "RING",
+    {"key": "ring", "label": "RING",
      "kind": "continuous", "step_kind": "linear", "step": 40.0,
      "lo": 0.0, "hi": 2000.0, "fmt": "hz0"},
-    {"page": PAGE_2, "pad": 4, "key": "detune", "label": "DTUN",
+    {"key": "detune", "label": "DTUN",
      "kind": "continuous", "step_kind": "linear", "step": 2.0,
      "lo": 0.0, "hi": 50.0, "fmt": "cents"},
-    {"page": PAGE_2, "pad": 7, "key": "reset", "label": "RST ",
-     "kind": "action"},
+    {"key": "reset", "label": "RST ", "kind": "action"},
 ]
 
-# Reduced, range-limited schema for the 8 drum-kit sounds
+# Reduced, range-limited schema for the drum-kit sounds
 # (sound_presets.build_kit_instance()).
 # No WAVE swap and tighter attack/decay ceilings than PARAM_SCHEMA, so edits
 # reshape a sound rather than turning it into a sustained melodic voice.
 DRUM_PARAM_SCHEMA = [
-    {"page": PAGE_1, "pad": 0, "key": "amp", "label": "AMP ",
+    {"key": "amp", "label": "AMP ",
      "kind": "continuous", "step_kind": "linear", "step": 0.05,
      "lo": 0.0, "hi": 1.0, "fmt": "pct"},
-    {"page": PAGE_1, "pad": 1, "key": "tune", "label": "TUNE",
+    {"key": "tune", "label": "TUNE",
      "kind": "continuous", "step_kind": "ratio", "ratio": 1.03,
      "lo": 20.0, "hi": 10000.0, "fmt": "hz"},
-    {"page": PAGE_1, "pad": 2, "key": "attack", "label": "ATK ",
+    {"key": "attack", "label": "ATK ",
      "kind": "continuous", "step_kind": "ratio", "ratio": 1.2,
      "lo": 0.001, "hi": 0.3, "fmt": "time"},
-    {"page": PAGE_1, "pad": 3, "key": "decay", "label": "DEC ",
+    {"key": "decay", "label": "DEC ",
      "kind": "continuous", "step_kind": "ratio", "ratio": 1.2,
      "lo": 0.02, "hi": 1.5, "fmt": "time"},
-    {"page": PAGE_1, "pad": 4, "key": "cutoff", "label": "TONE",
+    {"key": "cutoff", "label": "TONE",
      "kind": "continuous", "step_kind": "ratio", "ratio": 1.12,
      "lo": 300.0, "hi": 10000.0, "fmt": "hz"},
-    {"page": PAGE_1, "pad": 5, "key": "ring", "label": "SNAP",
+    {"key": "ring", "label": "SNAP",
      "kind": "continuous", "step_kind": "linear", "step": 40.0,
      "lo": 0.0, "hi": 2000.0, "fmt": "hz0"},
-    {"page": PAGE_1, "pad": 7, "key": "reset", "label": "RST ",
-     "kind": "action"},
+    {"key": "reset", "label": "RST ", "kind": "action"},
 ]
-
-
-def schema_for(schema, page, pad):
-    """Return the entry at (page, pad) in `schema`, or None if unused."""
-    for entry in schema:
-        if entry["page"] == page and entry["pad"] == pad:
-            return entry
-    return None
 
 
 def default_params(wave_idx, attack, decay, sustain, release):

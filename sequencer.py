@@ -2,27 +2,22 @@
 SequencerMode — 8-track × 16-step step sequencer.
 
 UI interaction:
-  - Pads 0-7   : toggle steps on the selected track for the current page.
-                 Toggling also previews the sound.
-  - MODE button : short = advance selected track; long = switch to looper;
-                  hold + pad = jump to that track. (All handled by code.py.)
-  - RECORD      : toggle step page (0 = steps 0-7, 1 = steps 8-15)
-  - PLAY/STOP   : global transport, handled by code.py -- short press calls
-                  set_playing(), long press calls clear_all().
-  - MUTE short  : mute / unmute selected track
-  - MUTE long   : clear all steps on selected track (also unmutes it)
-  - TEMPO+/-    : handled by main loop
+  - Pads 0-15  : toggle steps 0-15 of the bar on the selected track (row
+                 by row from the top left). Toggling also previews the sound.
+  - RECORD      : nothing (free for a later use)
+  - MUTE        : mute / unmute selected track
+  - Handled by code.py: LOOP/SEQ, PLAY/STOP (calls set_playing()), UP/DOWN
+    (the selected track's volume), CLEAR (clear_track() / clear_all()),
+    and choosing a track in the channel view (select_channel(),
+    toggle_mute()).
 
-Display (4 chars): T<track+1>P<page+1>  e.g. "T1P1"
-LEDs 0-7         : step on/off for selected track on current page;
-                   currently-playing step is always lit.
+Display (4 chars): T<track+1>  e.g. "T1  "
+Pad lights: the selected track's steps and the playhead
+(pad_views.StepView).
 """
 
-import config
-from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, BTN_UP, TICK
-from config import BTN_RECORD, BTN_MUTE, STEPS_PER_BAR, NUM_TRACKS, DEFAULT_BPM
-
-_LONG_PRESS_CLEAR_TRACK = 0.6
+from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, TICK
+from config import BTN_MUTE, STEPS_PER_BAR, NUM_TRACKS, DEFAULT_BPM
 
 
 class SequencerMode:
@@ -34,12 +29,13 @@ class SequencerMode:
         self._grid = [[False] * STEPS_PER_BAR for _ in range(NUM_TRACKS)]
 
         self._selected_track = 0
-        self._page           = 0   # 0 = steps 0-7, 1 = steps 8-15
         self._playing        = False
         self._current_step   = 0
 
         self._muted_tracks = 0   # bitmask: bit n set = track n is muted
-        self._mute_at      = 0.0
+        # When each track last played (a step, or a pad preview), for the
+        # channel view's activity flash.
+        self._played_at = [-1.0] * NUM_TRACKS
 
         # 16th-note duration in seconds. code.py owns tempo (BPM) and keeps
         # this in sync whenever it changes; kept here (rather than a
@@ -90,22 +86,66 @@ class SequencerMode:
     def selected_track(self):
         return self._selected_track
 
+    @property
+    def selected_steps(self):
+        """The selected track's steps (step n on = [n]). The live list --
+        read it, don't change it."""
+        return self._grid[self._selected_track]
+
+    @property
+    def selected_muted(self):
+        return bool(self._muted_tracks & (1 << self._selected_track))
+
     def update(self, now):
         pass
 
     def refresh_display(self):
         self._refresh_display()
 
-    # ── Channel navigation (called by code.py MODE gesture handler) ───────────
-
-    def cycle_channel(self):
-        self._selected_track = (self._selected_track + 1) % NUM_TRACKS
-        self._refresh_display()
+    # ── Channels (called by code.py for the channel view and CLEAR) ───────────
 
     def select_channel(self, n):
         if 0 <= n < NUM_TRACKS:
             self._selected_track = n
             self._refresh_display()
+
+    def channel_status(self, track):
+        """Track `track` for the channel view: "muted", "content" (has
+        steps) or "empty"."""
+        if self._muted_tracks & (1 << track):
+            return "muted"
+        return "content" if any(self._grid[track]) else "empty"
+
+    def played_at(self, track):
+        """When track `track` last played."""
+        return self._played_at[track]
+
+    def toggle_mute(self, track):
+        self._muted_tracks ^= (1 << track)
+        self._refresh_display()
+
+    # ── For AUTO (arranger.py) ────────────────────────────────────────────────
+
+    def can_arrange(self, track):
+        """True for a track AUTO may mute / unmute: one with steps."""
+        return any(self._grid[track])
+
+    def is_muted(self, track):
+        return bool(self._muted_tracks & (1 << track))
+
+    def set_muted(self, track, muted):
+        if muted:
+            self._muted_tracks |= (1 << track)
+        else:
+            self._muted_tracks &= ~(1 << track)
+        self._refresh_display()
+
+    def clear_track(self, track):
+        """Clear every step on the track, and unmute it."""
+        for s in range(STEPS_PER_BAR):
+            self._grid[track][s] = False
+        self._muted_tracks &= ~(1 << track)
+        self._refresh_display()
 
     # ── Global transport (called externally by code.py's PLAY/STOP) ───────────
 
@@ -152,71 +192,40 @@ class SequencerMode:
         etype, data = event
 
         if etype == PAD_DOWN:
-            pad   = data
-            step  = pad + self._page * 8
+            step  = data   # pad n = step n
             track = self._selected_track
-            self._grid[track][step] = not self._grid[track][step]
+            if step < STEPS_PER_BAR:
+                self._grid[track][step] = not self._grid[track][step]
             self._synth.trigger(track)
+            self._played_at[track] = now
 
         elif etype == PAD_UP:
-            if self._synth.is_melodic(data):
-                self._synth.note_off(data)
+            # The press previewed the track's sound, not the pad's.
+            track = self._selected_track
+            if self._synth.is_melodic(track):
+                self._synth.note_off(track)
 
         elif etype == BTN_DOWN:
-            if data == BTN_RECORD:
-                self._page = 1 - self._page
-            elif data == BTN_MUTE:
-                self._mute_at = now
-
-        elif etype == BTN_UP:
             if data == BTN_MUTE:
-                if now - self._mute_at >= _LONG_PRESS_CLEAR_TRACK:
-                    track = self._selected_track
-                    for s in range(STEPS_PER_BAR):
-                        self._grid[track][s] = False
-                    self._muted_tracks &= ~(1 << track)   # also unmute
-                else:
-                    self._muted_tracks ^= (1 << self._selected_track)
+                self._muted_tracks ^= (1 << self._selected_track)
 
         elif etype == TICK:
             self._current_step = data
-            self._fire_step(data)
+            self._fire_step(data, now)
 
         self._refresh_display()
 
     # ── Private ───────────────────────────────────────────────────────────────
 
-    def _fire_step(self, step):
+    def _fire_step(self, step, now):
         for track in range(NUM_TRACKS):
             if self._muted_tracks & (1 << track):
                 continue
             if self._grid[track][step]:
                 self._synth.trigger(track)
-
-    def _steps_bitmask(self):
-        track  = self._selected_track
-        offset = self._page * 8
-        mask   = 0
-        for i in range(8):
-            if self._grid[track][offset + i]:
-                mask |= (1 << i)
-        return mask
-
-    def _step_in_page(self):
-        if not self._playing:
-            return -1
-        offset = self._page * 8
-        if offset <= self._current_step < offset + 8:
-            return self._current_step - offset
-        return -1
+                self._played_at[track] = now
 
     def _refresh_display(self):
         if not self._is_display_owner:
             return
-        self._display.show_sequencer_state(
-            steps_bitmask8=self._steps_bitmask(),
-            current_step_in_page=self._step_in_page(),
-            is_playing=self._playing,
-            selected_track=self._selected_track,
-            page=self._page,
-        )
+        self._display.show_sequencer_state(self._selected_track)
