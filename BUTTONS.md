@@ -166,7 +166,7 @@ The menu remembers which parameter you were on, separately for melodic voices an
 | Item | Parameter |
 |---|---|
 | `AMP ` | Volume |
-| `WAVE` | Sine / square / saw / triangle |
+| `WAVE` | `SIN `, `SQR `, `SAW `, `TRI `, `SUB ` (sine with overtones), `PULS` (25% pulse), `ORGN` (organ), `MALL` (marimba), `BELL`, `CHRD` (a whole minor-7th chord), `SSAW` (supersaw) |
 | `ATK ` | Attack |
 | `DEC ` | Decay |
 | `SUS ` | Sustain |
@@ -178,6 +178,9 @@ The menu remembers which parameter you were on, separately for melodic voices an
 | `LDST` | LFO target: off / vibrato / tremolo / filter |
 | `RING` | Ring-mod frequency (0 = off) |
 | `DTUN` | Unison detune |
+| `PENV` | Pitch envelope: each note starts this many semitones above (+) or below (−) and slides onto its pitch (0 = off) |
+| `PTIM` | Pitch envelope time |
+| `GLID` | Glide: a note played while the last one is still held slides from it (0 = off) |
 | `RST ` | Reset |
 
 **Drum / kit sounds**, in list order (narrower ranges, so a drum stays a drum):
@@ -187,16 +190,18 @@ The menu remembers which parameter you were on, separately for melodic voices an
 | `AMP ` | Volume |
 | `TUNE` | Pitch |
 | `ATK ` | Attack |
-| `DEC ` | Decay |
+| `DEC ` | Length (up to 4 s) |
 | `TONE` | Filter |
 | `SNAP` | Ring-mod amount (0 = off) |
 | `RST ` | Reset |
 
 `AMP ` is the sound's own level. The channel volume (UP / DOWN outside the menu) scales it.
 
+In a kit, the closed hat cuts off a ringing open hat.
+
 ### ASGN — choose a layer's instrument (LOOP only)
 
-The list starts on the layer's current instrument: `KIT `, `BASS`, `REES`, `ACID`, `STAB`, `PLUK`, `HOOV`, `PAD `.
+The list starts on the layer's current instrument: `KIT `, `BASS`, `REES`, `ACID`, `STAB`, `PLUK`, `HOOV`, `PAD `, `JUNG` (jungle sub), `ORGN` (house organ), `CHRD` (chord stab), `MALL` (marimba), `BELL`, `CHIP` (pulse lead), `SSAW` (supersaw), `ZAP ` (laser).
 
 - **Browse:** the name shows right away. The sound switches once you stop on it for a moment, so what's already recorded plays on the new instrument live while you browse. You can also play the pads to try it.
 - **Keep or undo:** MENU keeps the choice. RECORD puts the original instrument back, with its sound edits intact.

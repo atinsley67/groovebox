@@ -354,7 +354,10 @@ def main():
         nonlocal sync_mode
         seq.set_playing(False)
         looper.set_playing(False, now)
-        synth.restore_sounds(data.get("sounds", {}))
+        # Before v3 a drum's DEC did nothing and six kit sounds were
+        # different sounds -- see sound_presets.upgrade_v2_kit_params.
+        synth.restore_sounds(data.get("sounds", {}),
+                             legacy_kit=data.get("v", 1) < 3)
         seq.restore(data.get("seq", {}))
         # After restore_sounds: converting a v1 groove's notes needs to
         # know which layers are melodic.

@@ -8,7 +8,7 @@ grooves.
 import json
 import unittest
 
-import fakes  # noqa: F401  (installs the CircuitPython fakes first)
+import fakes  # installs the CircuitPython fakes first
 
 import palette
 from harness import Harness, run
@@ -107,11 +107,11 @@ class PadsUnderMenuTest(unittest.TestCase):
     def test_pads_play_the_loop_layer(self):
         def scenario(h):
             yield from h.tap(BTN_MENU)
-            note = h.synth._channels[0]["data"][2]["note"]
-            presses = h.synth._synth.press_log.count(note)
+            sound = h.synth._channels[0]["data"][2]
+            presses = fakes.kit_presses(h.synth._synth, sound)
             h.pad_down(2)
             yield 0.02
-            assert h.synth._synth.press_log.count(note) == presses + 1
+            assert fakes.kit_presses(h.synth._synth, sound) == presses + 1
             assert h.pad_color(2) == palette.LIVE, "the looper keeps the pad lights"
             assert h.text == "SND ", "the menu keeps the text"
             h.pad_up(2)
@@ -347,7 +347,7 @@ class ChannelVolumeTest(unittest.TestCase):
             assert h.text == "ASGN"
             assert h.synth.channel_volume(1) == 50
             for sound in h.synth._channels[1]["data"]:
-                assert abs(sound["note"].amplitude - sound["params"]["amp"] * 0.5) < 1e-9
+                assert abs(fakes.level(sound["notes"][0].amplitude) - sound["params"]["amp"] * 0.5) < 1e-9
         run(scenario)
 
     def test_assign_list_is_every_instrument(self):

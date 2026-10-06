@@ -1,13 +1,34 @@
 import audiobusio
+import math
 import synthio
 
 import clock
 import config
 from sound_presets import (build_kit_instance, instantiate_instrument,
-                           INSTRUMENT_NAMES, WAVEFORM_TABLES)
+                           upgrade_v2_kit_params, voice_notes,
+                           INSTRUMENT_NAMES, WAVEFORM_DIVISORS, WAVEFORM_TABLES)
+from synth_params import GLIDE_OFF
 
 _VIBRATO_MAX_BEND = 1.0 / 12  # bend depth (1 semitone) at full LFO depth
 _FULL_VOLUME      = 100       # channel volumes are whole percents, 0-100
+_LN2              = math.log(2)
+# How fast a choked sound (an open hat cut by the closed hat) dies away.
+_CHOKE_RELEASE    = 0.02
+# Only its release matters: a choked sound is already releasing.
+_CHOKE_ENVELOPE   = synthio.Envelope(
+    attack_time=0.001,         attack_level=1.0,
+    decay_time=_CHOKE_RELEASE, sustain_level=0.0,
+    release_time=_CHOKE_RELEASE,
+)
+# The same for a melodic note's tail when a new, separate note starts
+# (_next_pair). Gentler than a drum's: synthio steps envelopes every
+# ~12 ms, and on a clean low note a big step is itself a click.
+_VOICE_FADE       = 0.05
+_VOICE_FADE_ENVELOPE = synthio.Envelope(
+    attack_time=0.001,      attack_level=1.0,
+    decay_time=_VOICE_FADE, sustain_level=0.0,
+    release_time=_VOICE_FADE,
+)
 
 
 def _clamp_volume(pct):
@@ -76,13 +97,14 @@ class SynthEngine:
         """Press a pad. Schedules auto-release based on the sound's hold_ms."""
         if pad_index < 0 or pad_index >= len(self._sequencer_kit):
             return
-        self._trigger_drum(self._sequencer_kit[pad_index])
+        self._trigger_drum(self._sequencer_kit, pad_index)
 
     def note_off(self, pad_index):
         """Manually release a held note (called on PAD_UP for melodic pads)."""
         if pad_index < 0 or pad_index >= len(self._sequencer_kit):
             return
-        self._release([self._sequencer_kit[pad_index]["note"]])
+        sound = self._sequencer_kit[pad_index]
+        self._release([sound["notes"][sound["live"]]])
 
     def sound_name(self, pad_index):
         return self._sequencer_kit[pad_index]["name"]
@@ -113,19 +135,84 @@ class SynthEngine:
         channel = self._channels[layer_idx]
         if channel["type"] == "kit":
             if 0 <= pad_index < len(channel["data"]):
-                self._trigger_drum(channel["data"][pad_index])
+                self._trigger_drum(channel["data"], pad_index)
             return
-        voice = channel["data"]
-        freq  = voice["scale"][pad_index]
-        voice["note"].frequency = freq
-        voice["sounding_pad"]   = pad_index
-
-        notes = [voice["note"]]
-        detune_cents = voice["params"]["detune"]
+        voice  = channel["data"]
+        params = voice["params"]
+        freq   = voice["scale"][pad_index]
+        # Legato -- the last note's pad still held -- carries that note on
+        # (and can glide). A separate note starts fresh on the other pair:
+        # synthio would otherwise re-enter the attack from wherever the
+        # last note's tail had got to, an instant jump in level that clicks
+        # on clean, low sounds.
+        legato = voice["sounding_pad"] is not None
+        if not legato:
+            self._next_pair(voice)
+        pair = voice["pairs"][voice["live"]]
+        notes = [pair["note"]]
+        detune_cents = params["detune"]
         if detune_cents:
-            voice["detune_note"].frequency = freq * (2 ** (detune_cents / 1200.0))
-            notes.append(voice["detune_note"])
-        self._press_with_hold(notes, voice["hold_ms"])
+            notes.append(pair["detune_note"])
+        # A legato note on a still-held, sustaining note just moves its
+        # pitch (gliding if GLID is on): re-pressing it would jump straight
+        # back to full level mid-wave -- the same click. A voice with no
+        # sustain has died away while held, so it re-plucks instead.
+        tie = legato and params["sustain"] > 0 and self._all_held(notes)
+        self._start_pitch_mods(voice, pair, freq, legato, tie)
+        voice["sounding_pad"] = pad_index
+        # The multi-partial waves hold the note as a harmonic of a lower
+        # fundamental (sound_presets.WAVEFORM_DIVISORS).
+        osc_freq = freq / WAVEFORM_DIVISORS[params["wave"]]
+        pair["note"].frequency = osc_freq
+        if detune_cents:
+            pair["detune_note"].frequency = osc_freq * (2 ** (detune_cents / 1200.0))
+        if tie:
+            self._schedule_release(notes, voice["hold_ms"])   # a fresh hold window
+        else:
+            self._press_with_hold(notes, voice["hold_ms"])
+
+    def _all_held(self, notes):
+        """True if every one of `notes` is still sounding and not yet
+        released (synthio's own envelope state)."""
+        for note in notes:
+            state = self._synth.note_info(note)[0]
+            if state is None or state == synthio.EnvelopeState.RELEASE:
+                return False
+        return True
+
+    def _next_pair(self, voice):
+        """Move a melodic voice to its other pair of Notes, fading the last
+        pair's release out quickly (it's already released: the voice only
+        moves on a non-legato note)."""
+        last = voice["pairs"][voice["live"]]
+        last["note"].envelope = last["detune_note"].envelope = _VOICE_FADE_ENVELOPE
+        voice["live"] = 1 - voice["live"]
+        pair = voice["pairs"][voice["live"]]
+        pair["note"].envelope = pair["detune_note"].envelope = voice["envelope"]
+
+    def _start_pitch_mods(self, voice, pair, freq, legato, tie):
+        """Set up a melodic note's one-shot pitch moves, before it sounds:
+        a glide from the previous note if that one is still held (legato)
+        and GLID is on, otherwise the PENV pitch envelope -- unless the note
+        is tied on (`tie`, see trigger_layer_pad), which isn't a new hit. A
+        slide doesn't re-punch -- like a 303's slide, it carries on from the
+        last note."""
+        params = voice["params"]
+        prev   = voice["freq"]
+        bend   = pair["bend"]
+        voice["freq"] = freq
+        glide = params["glide"]
+        if glide >= GLIDE_OFF and legato and prev and prev != freq:
+            lfo = pair["glide_lfo"]
+            octaves = math.log(prev / freq) / _LN2
+            lfo.scale, lfo.offset = octaves / 2, octaves / 2
+            lfo.rate = 1.0 / glide
+            lfo.retrigger()
+            bend.c = lfo
+            return
+        bend.c = 0.0
+        if params["penv"] and not tie:
+            pair["penv_lfo"].retrigger()
 
     def release_layer_pad(self, layer_idx, pad_index):
         """Release a loop layer's note for this pad (PAD_UP, or a recorded
@@ -140,7 +227,7 @@ class SynthEngine:
         if channel["type"] == "kit":
             sound = channel["data"][pad_index]
             if sound["hold_ms"] > 0:
-                self._release([sound["note"]])
+                self._release([sound["notes"][sound["live"]]])
             return
         voice = channel["data"]
         if voice["sounding_pad"] != pad_index:
@@ -148,7 +235,8 @@ class SynthEngine:
         voice["sounding_pad"] = None
         # Releasing a note that isn't pressed is a no-op, so it's safe to
         # always release both regardless of the current detune setting.
-        self._release([voice["note"], voice["detune_note"]])
+        pair = voice["pairs"][voice["live"]]
+        self._release([pair["note"], pair["detune_note"]])
 
     def channel_instrument_id(self, layer_idx):
         return self._channels[layer_idx]["id"]
@@ -251,18 +339,26 @@ class SynthEngine:
                 "track_vol": list(self._track_volumes),
                 "layer_vol": list(self._layer_volumes)}
 
-    def restore_sounds(self, data):
+    def restore_sounds(self, data, legacy_kit=False):
         """Put back a snapshot_sounds(). Every layer gets a fresh instance of
         its saved instrument (silencing whatever it had), then the saved
         params on top -- see _merged_params. Volumes go back first, so every
-        sound is levelled as it's rebuilt."""
+        sound is levelled as it's rebuilt. legacy_kit: the data is from a
+        groove older than v3, whose kit params are upgraded first
+        (sound_presets.upgrade_v2_kit_params)."""
+        def kit_saved(pad, saved):
+            if legacy_kit and isinstance(saved, dict):
+                return upgrade_v2_kit_params(pad, saved)
+            return saved
+
         self._track_volumes = _restored_volumes(data.get("track_vol"),
                                                 len(self._track_volumes))
         self._layer_volumes = _restored_volumes(data.get("layer_vol"),
                                                 len(self._layer_volumes))
 
-        for sound, saved in zip(self._sequencer_kit, data.get("kit", [])):
-            sound["params"] = _merged_params(sound, saved)
+        for pad, (sound, saved) in enumerate(zip(self._sequencer_kit,
+                                                 data.get("kit", []))):
+            sound["params"] = _merged_params(sound, kit_saved(pad, saved))
         for track, sound in enumerate(self._sequencer_kit):
             self._apply_drum_params(sound, self._track_gain(track))
 
@@ -283,8 +379,8 @@ class SynthEngine:
                 voice["params"] = _merged_params(voice, saved)
                 self._apply_voice_params(voice, gain)
             else:
-                for sound, sound_saved in zip(channel["data"], saved):
-                    sound["params"] = _merged_params(sound, sound_saved)
+                for pad, (sound, sound_saved) in enumerate(zip(channel["data"], saved)):
+                    sound["params"] = _merged_params(sound, kit_saved(pad, sound_saved))
                     self._apply_drum_params(sound, gain)
 
     def _channel_target(self, layer_idx, pad_or_none):
@@ -317,15 +413,14 @@ class SynthEngine:
         channel volume (0.0-1.0) scaling the AMP param."""
         params   = voice["params"]
         waveform = WAVEFORM_TABLES[params["wave"]]
-        notes    = (voice["note"], voice["detune_note"])
         lfo      = voice["lfo"]
         dest     = params["lfo_dest"]
         depth    = params["lfo_depth"]
         lfo.rate = params["lfo_rate"]
 
         # Envelope/Biquad are immutable value objects in synthio -- rebuild
-        # rather than mutate, and share the new instance across both notes.
-        envelope = synthio.Envelope(
+        # rather than mutate, and share the new instance across the notes.
+        envelope = voice["envelope"] = synthio.Envelope(
             attack_time=params["attack"], attack_level=1.0,
             decay_time=params["decay"],   sustain_level=params["sustain"],
             release_time=params["release"],
@@ -346,12 +441,24 @@ class SynthEngine:
             filt = synthio.Biquad(synthio.FilterMode.LOW_PASS,
                                    frequency=params["cutoff"], Q=params["resonance"])
 
-        for note in notes:
-            note.waveform = waveform
-            note.envelope = envelope
-            note.filter   = filt
+        # Pitch envelope: a one-shot ramp from PENV semitones off down to
+        # the note, summed into the bend with vibrato and glide (bend.b).
+        octaves = params["penv"] / 12.0
+        for pair in voice["pairs"]:
+            penv_lfo = pair["penv_lfo"]
+            penv_lfo.scale, penv_lfo.offset = octaves / 2, octaves / 2
+            penv_lfo.rate = 1.0 / params["ptime"]
+            pair["bend"].b = penv_lfo if octaves else 0.0
 
-            ring_freq = params["ring"]
+        # Only the live pair takes the new envelope now: the other may be
+        # fading out (_next_pair), and gets it when it's next played.
+        live = voice["pairs"][voice["live"]]
+        live["note"].envelope = live["detune_note"].envelope = envelope
+
+        ring_freq = params["ring"]
+        for note in voice_notes(voice):
+            note.waveform = waveform
+            note.filter   = filt
             note.ring_frequency = ring_freq
             if ring_freq and note.ring_waveform is None:
                 note.ring_waveform = WAVEFORM_TABLES[1]  # square: bright ring carrier
@@ -364,50 +471,64 @@ class SynthEngine:
         on its own after a volume change -- it only touches what depends on
         the level, and the vibrato/tremolo routing it shares with it."""
         params = voice["params"]
-        notes  = (voice["note"], voice["detune_note"])
         lfo    = voice["lfo"]
         dest   = params["lfo_dest"]
         depth  = params["lfo_depth"]
         amp    = params["amp"] * gain
         if dest == 1 and depth > 0:  # vibrato: wobble pitch around center
             lfo.scale, lfo.offset = depth * _VIBRATO_MAX_BEND, 0.0
-            for note in notes:
-                note.bend, note.amplitude = lfo, amp
+            vibrato, level = lfo, amp
         elif dest == 2 and depth > 0:  # tremolo: wobble amplitude below the voice's set level
             lfo.scale, lfo.offset = amp * depth / 2, amp * (1.0 - depth / 2)
-            for note in notes:
-                note.amplitude, note.bend = lfo, 0.0
+            vibrato, level = 0.0, lfo
         else:  # off, filter wobble (handled above via the filter itself), or depth == 0
-            for note in notes:
-                note.bend, note.amplitude = 0.0, amp
+            vibrato, level = 0.0, amp
+        for pair in voice["pairs"]:
+            bend = pair["bend"]   # vibrato (a) + pitch envelope (b) + glide (c)
+            bend.a = vibrato
+            for note in (pair["note"], pair["detune_note"]):
+                note.bend, note.amplitude = bend, level
 
     def _apply_drum_params(self, sound, gain):
-        """Push a kit sound's params onto its note. gain is the channel
+        """Push a kit sound's params onto its notes. gain is the channel
         volume (0.0-1.0) scaling the AMP param."""
-        params, note = sound["params"], sound["note"]
-        note.frequency = params["tune"]
+        params, notes = sound["params"], sound["notes"]
         self._apply_drum_level(sound, gain)
+        if sound["amp_lfos"] is not None and not sound["amp_lfo_fixed"]:
+            for lfo in sound["amp_lfos"]:
+                lfo.rate = 1.0 / params["decay"]   # the shape spans the sound
 
-        old_env = note.envelope
-        note.envelope = synthio.Envelope(
+        # A drum is released the instant it's pressed, so its release is
+        # its whole length -- DEC sets both (sound_presets._perc_env). Only
+        # the live note takes it now (unless choked): the other is fading
+        # out, and gets it on its next hit.
+        old_env = sound["envelope"]
+        sound["envelope"] = synthio.Envelope(
             attack_time=params["attack"], attack_level=old_env.attack_level,
             decay_time=params["decay"],   sustain_level=old_env.sustain_level,
-            release_time=old_env.release_time,
+            release_time=params["decay"],
         )
+        if not sound["choked"]:
+            notes[sound["live"]].envelope = sound["envelope"]
 
-        old_filt = note.filter
-        note.filter = synthio.Biquad(
-            old_filt.mode,
-            frequency=params["cutoff"], Q=old_filt.Q,
-        )
-
+        old_filt = notes[0].filter
+        filt = synthio.Biquad(old_filt.mode, frequency=params["cutoff"], Q=old_filt.Q)
         ring_freq = params["ring"]
-        note.ring_frequency = ring_freq
-        if ring_freq and note.ring_waveform is None:
-            note.ring_waveform = WAVEFORM_TABLES[1]  # square: bright ring carrier
+        for note in notes:
+            note.frequency = params["tune"]
+            note.filter    = filt
+            note.ring_frequency = ring_freq
+            if ring_freq and note.ring_waveform is None:
+                note.ring_waveform = WAVEFORM_TABLES[1]  # square: bright ring carrier
 
     def _apply_drum_level(self, sound, gain):
-        sound["note"].amplitude = sound["params"]["amp"] * gain
+        level = sound["params"]["amp"] * gain
+        if sound["amp_lfos"] is None:
+            for note in sound["notes"]:
+                note.amplitude = level
+        else:   # the shape's scale is the level (sound_presets._drum_entry)
+            for lfo in sound["amp_lfos"]:
+                lfo.scale = level
 
     # ── Private ───────────────────────────────────────────────────────────────
 
@@ -432,20 +553,44 @@ class SynthEngine:
         if channel["type"] == "melodic":
             voice = channel["data"]
             voice["sounding_pad"] = None
-            notes = [voice["note"], voice["detune_note"]]
+            notes = voice_notes(voice)
         else:
-            notes = [sound["note"] for sound in channel["data"]]
+            notes = [note for sound in channel["data"] for note in sound["notes"]]
         self._synth.release(notes)
         self._pending_releases = [
             r for r in self._pending_releases
             if not any(r[1] is n for n in notes)
         ]
 
-    def _trigger_drum(self, sound):
-        bend_lfo = sound.get("bend_lfo")
-        if bend_lfo is not None:
-            bend_lfo.retrigger()
-        self._press_with_hold([sound["note"]], sound["hold_ms"])
+    def _trigger_drum(self, kit, pad_index):
+        sound = kit[pad_index]
+        group = sound["choke"]
+        if group is not None:
+            for other in kit:
+                if other is not sound and other["choke"] == group:
+                    self._choke(other)
+        # Hit on the sound's other Note, so the hit starts fresh at full
+        # level, and fade the last hit out (sound_presets._drum_entry).
+        notes = sound["notes"]
+        last  = sound["live"]
+        this  = 1 - last
+        notes[last].envelope = _CHOKE_ENVELOPE
+        note = notes[this]
+        note.envelope = sound["envelope"]
+        sound["live"], sound["choked"] = this, False
+        if sound["bend_lfos"] is not None:
+            sound["bend_lfos"][this].retrigger()
+        if sound["amp_lfos"] is not None:
+            sound["amp_lfos"][this].retrigger()
+        self._press_with_hold([note], sound["hold_ms"])
+
+    def _choke(self, sound):
+        """Cut a ringing kit sound short. synthio reads a note's envelope
+        every block, so swapping in a fast release shortens a release
+        already under way; _trigger_drum puts the real one back."""
+        if not sound["choked"]:
+            sound["choked"] = True
+            sound["notes"][sound["live"]].envelope = _CHOKE_ENVELOPE
 
     def _press_with_hold(self, notes, hold_ms):
         # Release any previous press of these notes before re-triggering,
@@ -457,11 +602,16 @@ class SynthEngine:
             # Percussive: release immediately; envelope handles the tail.
             self._synth.release(notes)
         else:
-            release_at = clock.now() + hold_ms / 1000.0
-            key = notes[0]
-            # Remove stale entry for this voice if any
-            self._pending_releases = [r for r in self._pending_releases if r[1] is not key]
-            self._pending_releases.append((release_at, key, notes))
+            self._schedule_release(notes, hold_ms)
+
+    def _schedule_release(self, notes, hold_ms):
+        """Auto-release `notes` hold_ms from now, replacing any release
+        already scheduled for them."""
+        release_at = clock.now() + hold_ms / 1000.0
+        key = notes[0]
+        # Remove stale entry for this voice if any
+        self._pending_releases = [r for r in self._pending_releases if r[1] is not key]
+        self._pending_releases.append((release_at, key, notes))
 
     def _release(self, notes):
         self._synth.release(notes)

@@ -207,10 +207,10 @@ class NeoKeyMainLoopTest(unittest.TestCase):
 
     def test_pads_play_and_light(self):
         def scenario(h):
-            note = h.synth._channels[0]["data"][5]["note"]
+            sound = h.synth._channels[0]["data"][5]
             h.pad_down(5)
             yield 0.03
-            assert note in h.synth._synth.press_log
+            assert fakes.kit_presses(h.synth._synth, sound) == 1
             assert h.pad_color(5) == palette.LIVE
             h.pad_up(5)
             yield 0.03

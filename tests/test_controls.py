@@ -5,7 +5,7 @@ confirm, and the channel view (VIEW, KEY MODE select / mute).
 
 import unittest
 
-import fakes  # noqa: F401  (installs the CircuitPython fakes first)
+import fakes  # installs the CircuitPython fakes first
 
 import palette
 from pad_views import ChannelView
@@ -32,8 +32,7 @@ def colors_over(h, read, seconds):
 
 
 def kit_presses(h, pad):
-    note = h.synth._channels[0]["data"][pad]["note"]
-    return h.synth._synth.press_log.count(note)
+    return fakes.kit_presses(h.synth._synth, h.synth._channels[0]["data"][pad])
 
 
 class ModeAndMuteKeysTest(unittest.TestCase):

@@ -14,8 +14,9 @@ and shows it as a list, in the order given here.
 """
 
 # Waveform count/order must match sound_presets.WAVEFORM_TABLES.
-NUM_WAVEFORMS  = 4
-WAVEFORM_NAMES = ["SIN ", "SQR ", "SAW ", "TRI "]
+WAVEFORM_NAMES = ["SIN ", "SQR ", "SAW ", "TRI ", "SUB ", "PULS", "ORGN",
+                  "MALL", "BELL", "CHRD", "SSAW"]
+NUM_WAVEFORMS  = len(WAVEFORM_NAMES)
 LFO_DEST_NAMES = ["OFF ", "VIB ", "TREM", "FILT"]
 
 # Each entry is one item of the SOUND list. kind:
@@ -62,8 +63,24 @@ PARAM_SCHEMA = [
     {"key": "detune", "label": "DTUN",
      "kind": "continuous", "step_kind": "linear", "step": 2.0,
      "lo": 0.0, "hi": 50.0, "fmt": "cents"},
+    # Pitch envelope: each note starts this many semitones off (+ above,
+    # - below) and slides onto its pitch over PTIM.
+    {"key": "penv", "label": "PENV",
+     "kind": "continuous", "step_kind": "linear", "step": 1.0,
+     "lo": -24.0, "hi": 24.0, "fmt": "semi"},
+    {"key": "ptime", "label": "PTIM",
+     "kind": "continuous", "step_kind": "ratio", "ratio": 1.2,
+     "lo": 0.005, "hi": 1.0, "fmt": "time"},
+    # Glide: a note played while the last is still held slides from it.
+    {"key": "glide", "label": "GLID",
+     "kind": "continuous", "step_kind": "linear", "step": 0.02,
+     "lo": 0.0, "hi": 0.5, "fmt": "time0"},
     {"key": "reset", "label": "RST ", "kind": "action"},
 ]
+
+# Below this a GLID value counts as off (linear float steps back down to
+# "zero" can land a hair above it).
+GLIDE_OFF = 0.001
 
 # Reduced, range-limited schema for the drum-kit sounds
 # (sound_presets.build_kit_instance()).
@@ -73,15 +90,18 @@ DRUM_PARAM_SCHEMA = [
     {"key": "amp", "label": "AMP ",
      "kind": "continuous", "step_kind": "linear", "step": 0.05,
      "lo": 0.0, "hi": 1.0, "fmt": "pct"},
+    # Low floor: the long-noise sounds play their table at a few Hz (see
+    # sound_presets' module docstring).
     {"key": "tune", "label": "TUNE",
      "kind": "continuous", "step_kind": "ratio", "ratio": 1.03,
-     "lo": 20.0, "hi": 10000.0, "fmt": "hz"},
+     "lo": 1.0, "hi": 10000.0, "fmt": "hz"},
     {"key": "attack", "label": "ATK ",
      "kind": "continuous", "step_kind": "ratio", "ratio": 1.2,
      "lo": 0.001, "hi": 0.3, "fmt": "time"},
+    # A drum's whole length (sound_presets._perc_env); the crash wants seconds.
     {"key": "decay", "label": "DEC ",
      "kind": "continuous", "step_kind": "ratio", "ratio": 1.2,
-     "lo": 0.02, "hi": 1.5, "fmt": "time"},
+     "lo": 0.005, "hi": 4.0, "fmt": "time"},
     {"key": "cutoff", "label": "TONE",
      "kind": "continuous", "step_kind": "ratio", "ratio": 1.12,
      "lo": 300.0, "hi": 10000.0, "fmt": "hz"},
@@ -101,6 +121,7 @@ def default_params(wave_idx, attack, decay, sustain, release):
         "cutoff": 10000.0, "resonance": 0.7071067811865475,
         "lfo_rate": 5.0, "lfo_depth": 0.0, "lfo_dest": 0,
         "ring": 0.0,
+        "penv": 0.0, "ptime": 0.05, "glide": 0.0,
     }
 
 
@@ -132,6 +153,10 @@ def format_value(entry, value):
         return "OFF" if value == 0 else f"{int(value)}c"
     if fmt == "hz0":
         return "OFF" if value == 0 else _fmt_hz(value)
+    if fmt == "semi":
+        return "OFF" if value == 0 else f"{int(value):+d}"
+    if fmt == "time0":
+        return "OFF" if value < GLIDE_OFF else _fmt_time(value)
     if fmt == "hz":
         return _fmt_hz(value)
     if fmt == "time":
@@ -146,6 +171,8 @@ def format_value(entry, value):
 def _fmt_hz(v):
     if v >= 1000:
         return f"{v / 1000:.1f}k"
+    if v < 10:
+        return f"{v:.1f}"
     return f"{int(v)}"
 
 
