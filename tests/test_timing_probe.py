@@ -9,8 +9,9 @@ import fakes  # noqa: F401  (installs the CircuitPython fakes first)
 import config
 import harness
 import palette
+import timing_probe
 from config import BTN_MENU
-from timing_probe import TimingProbe
+from timing_probe import TimingProbe, census
 
 MS = 1000000
 
@@ -172,10 +173,81 @@ class AllocAndLedTimingTest(unittest.TestCase):
         self.assertIn("send 1x 3.00ms", line)
 
 
+class AllocByPartTest(unittest.TestCase):
+    """The ALLOC line: one pass in _ALLOC_SAMPLE_EVERY measured part by
+    part, against a fake count of memory in use."""
+
+    def setUp(self):
+        self.ns    = FakeNs()
+        self.mem   = [1000]
+        self.probe = TimingProbe(FakeHw(self.ns, MS), ns=self.ns, report_every=100.0,
+                                 mem_free=lambda: 0, mem_alloc=lambda: self.mem[0])
+
+        class Part:
+            grows = 40
+
+            def update(part, now):
+                self.mem[0] += part.grows
+                return now * 2
+
+        self.part = Part()
+        self.probe.track("part", self.part, "update", 1)
+
+    def run_passes(self, count):
+        for _ in range(count):
+            self.probe.scan()
+            self.assertEqual(self.part.update(1.5), 3.0)   # passed through
+            self.mem[0] += 10                              # the rest of the pass
+            self.ns.t += MS
+
+    def test_parts_and_the_rest(self):
+        self.run_passes(2 * timing_probe._ALLOC_SAMPLE_EVERY)
+        self.probe.scan()                                  # ends the second sample
+        self.assertEqual(self.probe.alloc_line(),
+                         "ALLOC per pass, 2 samples (0 lost to a gc):"
+                         " total 50B | scan 0 | part 40 | rest 10")
+
+    def test_a_collection_loses_the_sample(self):
+        self.part.grows = -500                             # memory went down: a gc
+        self.run_passes(timing_probe._ALLOC_SAMPLE_EVERY)
+        self.probe.scan()
+        self.assertEqual(self.probe.alloc_line(),
+                         "ALLOC per pass, no samples (1 lost to a gc)")
+
+    def test_sampled_passes_stay_out_of_the_timing(self):
+        scans = timing_probe._ALLOC_SAMPLE_EVERY + 5
+        self.run_passes(scans)
+        line = self.probe.report_line()
+        # scans - 1 passes end between them; the sampled one isn't counted
+        self.assertIn(f"passes {scans - 2} ", line)
+
+
+class CensusTest(unittest.TestCase):
+    def test_times_the_second_of_two_collections(self):
+        ns, lines = FakeNs(), []
+        calls = []
+
+        def collect():
+            calls.append(ns.t)
+            ns.t += (30 if len(calls) == 1 else 12) * MS   # garbage, then live data only
+
+        census("voices", ns=ns, collect=collect, mem_alloc=lambda: 145 * 1024,
+               mem_free=lambda: 251 * 1024, out=lines.append)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(lines, ["HEAP voices         used 145k free 251k gc 12.00ms"])
+
+    def test_without_memory_readings(self):
+        lines = []
+        census("boot", ns=FakeNs(), collect=lambda: None, mem_alloc=None,
+               mem_free=None, out=lines.append)
+        self.assertEqual(lines, ["HEAP boot           gc 0.00ms"])
+
+
 class MainLoopWithProbeTest(unittest.TestCase):
     def test_main_loop_runs_with_probe_on(self):
         saved = config.TIMING_PROBE
         config.TIMING_PROBE = True
+        out = io.StringIO()
         try:
             def scenario(h):
                 yield from h.tap(BTN_MENU)
@@ -185,9 +257,13 @@ class MainLoopWithProbeTest(unittest.TestCase):
                 assert h.pad_color(2) == palette.LIVE   # drawn through the timer
                 h.pad_up(2)
                 yield 0.05
-            harness.run(scenario)
+            with contextlib.redirect_stdout(out):
+                harness.run(scenario)
         finally:
             config.TIMING_PROBE = saved
+        stages = [line.split()[1] for line in out.getvalue().splitlines()
+                  if line.startswith("HEAP")]
+        self.assertEqual(stages, ["boot", "sound", "imports", "hardware", "voices", "ready"])
 
 
 if __name__ == "__main__":

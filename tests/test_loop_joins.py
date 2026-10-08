@@ -55,7 +55,7 @@ class JoinTest(unittest.TestCase):
         self.up(A, 0.62)         # would have landed at 0.57: before B
         self.up(B, 0.90)
         self.assertEqual([p for _, p in layer.events], [A, B])
-        self.assertEqual(layer.releases, [(quantized(0.60) + 0.30, B)])
+        self.assertEqual(fakes.notes(layer.releases), [(round(quantized(0.60) + 0.30, 6), B)])
 
     def test_short_note_inside_a_held_one(self):
         layer = self.recording()
@@ -126,7 +126,7 @@ class JoinTest(unittest.TestCase):
         self.down(B, 0.60)
         self.up(A, 0.62)
         self.up(B, 0.90)
-        self.assertEqual(layer.releases, [])     # drums self-release
+        self.assertEqual(len(layer.releases), 0)     # drums self-release
 
     def test_freeform_untouched(self):
         self.loop._synced = False
@@ -134,7 +134,30 @@ class JoinTest(unittest.TestCase):
         self.down(A, 0.30)
         self.down(B, 0.60)
         self.up(A, 0.62)
-        self.assertEqual(layer.releases, [(0.62, A)])
+        self.assertEqual(fakes.notes(layer.releases), [(0.62, A)])
+
+
+class NoteListTest(unittest.TestCase):
+    """A layer's notes: flat buffers that read like (pos, pad) pairs."""
+
+    def test_reads_like_pairs(self):
+        notes = looper.NoteList([(0.5, 3), (0.25, 7)])
+        self.assertEqual(len(notes), 2)
+        self.assertEqual(notes[1], (0.25, 7))
+        self.assertEqual(list(notes), [(0.5, 3), (0.25, 7)])
+        notes.append(0.75, 15)
+        self.assertEqual(notes[2], (0.75, 15))
+
+    def test_sort_keeps_ties_in_order(self):
+        notes = looper.NoteList([(0.5, 3), (0.25, 7), (0.5, 1), (0.0, 2)])
+        notes.sort()
+        self.assertEqual(list(notes), [(0.0, 2), (0.25, 7), (0.5, 3), (0.5, 1)])
+
+    def test_two_flat_buffers(self):
+        # Nothing in them for the garbage collector to follow.
+        notes = looper.NoteList([(0.5, 3)])
+        self.assertEqual(type(notes.pos).__name__, "array")
+        self.assertIsInstance(notes.pad, bytearray)
 
 
 if __name__ == "__main__":

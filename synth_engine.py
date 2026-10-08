@@ -609,27 +609,34 @@ class SynthEngine:
         already scheduled for them."""
         release_at = clock.now() + hold_ms / 1000.0
         key = notes[0]
-        # Remove stale entry for this voice if any
-        self._pending_releases = [r for r in self._pending_releases if r[1] is not key]
+        self._drop_pending(key)   # a stale entry for this voice, if any
         self._pending_releases.append((release_at, key, notes))
 
     def _release(self, notes):
         self._synth.release(notes)
-        key = notes[0]
-        self._pending_releases = [r for r in self._pending_releases if r[1] is not key]
+        self._drop_pending(notes[0])
 
-    def update(self):
-        """Process scheduled releases. Call once per main-loop iteration."""
-        if not self._pending_releases:
-            return
-        now = clock.now()
-        still_pending = []
-        for release_at, key, notes in self._pending_releases:
+    def _drop_pending(self, key):
+        """Remove the scheduled release keyed `key` (there's at most one),
+        in place: rebuilding the list would allocate on every note."""
+        pending = self._pending_releases
+        for i in range(len(pending)):
+            if pending[i][1] is key:
+                del pending[i]
+                return
+
+    def update(self, now):
+        """Process scheduled releases due by `now` (the main loop's). Called
+        every pass, so it allocates nothing unless one is due."""
+        pending = self._pending_releases
+        i = 0
+        while i < len(pending):
+            release_at, _, notes = pending[i]
             if now >= release_at:
                 self._synth.release(notes)
+                del pending[i]
             else:
-                still_pending.append((release_at, key, notes))
-        self._pending_releases = still_pending
+                i += 1
 
     def deinit(self):
         self._synth.deinit()

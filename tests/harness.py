@@ -19,7 +19,7 @@ fake NeoPixel strips (see pad_color / key_color).
 
 Time is fake (tests/fakes.py): every main-loop pass is one FRAME of it, so
 runs are deterministic and much faster than real time. The instances
-code.py builds (hw, synth, looper, seq, menu, disp) are captured for
+code.py builds (hw, synth, looper, seq, menu, disp, arp) are captured for
 inspection.
 """
 
@@ -31,6 +31,7 @@ import time
 
 import fakes
 
+import arp
 import config
 import display
 import groove
@@ -58,6 +59,7 @@ class Harness:
         self.seq    = None
         self.menu   = None
         self.disp   = None
+        self.arp    = None
         self._scenario = None
         self._wake_at  = 0.0
         self._error    = None
@@ -187,6 +189,7 @@ class Harness:
             (sequencer, "SequencerMode", recording(sequencer.SequencerMode, "seq")),
             (menu, "MenuMode", recording(menu.MenuMode, "menu")),
             (display, "DisplayManager", recording(display.DisplayManager, "disp")),
+            (arp, "Arpeggiator", recording(arp.Arpeggiator, "arp")),
             (startup, "run", lambda hw, disp: None),
             (groove, "_DIR", self.groove_dir),
             (time, "sleep", crashed),

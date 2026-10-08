@@ -12,6 +12,7 @@ import arranger
 from arranger import Arranger
 from config import BTN_MENU, BTN_DEC, BTN_MODE, BTN_PLAY_STOP, BTN_RECORD
 from harness import run
+from looper import NoteList
 
 
 class FakeMode:
@@ -241,7 +242,7 @@ class AutoMainLoopTest(unittest.TestCase):
             yield 0.4
             yield from h.tap(BTN_RECORD)                      # layer 1: a 0.5 s loop
             for layer in (1, 2):                              # two more layers
-                h.looper._layers[layer].events = list(h.looper._layers[0].events)
+                h.looper._layers[layer].events = NoteList(h.looper._layers[0].events)
                 h.looper._layers[layer].loop_duration = h.looper._layers[0].loop_duration
                 h.looper._layers[layer].play_start = h.looper._layers[0].play_start
                 h.looper._layers[layer].state = "PLY "

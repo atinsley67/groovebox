@@ -373,10 +373,10 @@ class MelodicRetriggerTest(unittest.TestCase):
         fakes.CLOCK.t = 2.0
         self.engine.trigger_layer_pad(1, 13)                           # tied at 2 s
         fakes.CLOCK.t = 3.5                                            # past the first window
-        self.engine.update()
+        self.engine.update(fakes.CLOCK.t)
         self.assertIn(self.mains()[0], self.engine._synth.pressed)
         fakes.CLOCK.t = 5.5
-        self.engine.update()
+        self.engine.update(fakes.CLOCK.t)
         self.assertNotIn(self.mains()[0], self.engine._synth.pressed)
 
     def test_auto_released_note_is_pressed_again(self):
@@ -384,7 +384,7 @@ class MelodicRetriggerTest(unittest.TestCase):
         fakes.CLOCK.t = 0.0
         self.engine.trigger_layer_pad(1, 12)
         fakes.CLOCK.t = 4.0                                            # past JUNG's hold
-        self.engine.update()
+        self.engine.update(fakes.CLOCK.t)
         self.engine.trigger_layer_pad(1, 13)                           # 12's pad still down
         self.assertEqual(self.log, [a, a])
 

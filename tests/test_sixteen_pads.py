@@ -22,7 +22,8 @@ from synth_engine import SynthEngine
 
 KIT_LAYER  = 0
 BASS_LAYER = 1
-LOAD_ITEM  = 6   # LOAD's place in the menu's root list
+LOAD_ITEM  = 7   # LOAD's place in the menu's root list
+MIRR_ITEM  = 5
 
 
 def kit_sound(h, layer, pad):
@@ -127,7 +128,7 @@ class LooperSixteenPadTest(unittest.TestCase):
             assert palette.PLAYBACK in seen, "playback lights pad 16"
 
             yield from h.tap(BTN_MENU)
-            yield from h.taps(BTN_INC, 4)
+            yield from h.taps(BTN_INC, MIRR_ITEM)
             assert h.text == "MIRR"
             yield from h.tap(BTN_MENU)
             assert h.text == "DONE"
@@ -218,9 +219,9 @@ class GrooveVersionTest(unittest.TestCase):
         def scenario(h):
             yield from load_slot(h, 0)
             kit, bass = h.looper._layers[0], h.looper._layers[1]
-            assert kit.events == [(0.0, 3)], kit.events            # kit: unchanged
-            assert bass.events == [(0.0, 12), (0.1, 11)], bass.events
-            assert bass.releases == [(0.05, 12)], bass.releases
+            assert fakes.notes(kit.events) == [(0.0, 3)], kit.events            # kit: unchanged
+            assert fakes.notes(bass.events) == [(0.0, 12), (0.1, 11)], bass.events
+            assert fakes.notes(bass.releases) == [(0.05, 12)], bass.releases
             voice = h.synth._channels[1]["data"]
             assert abs(voice["scale"][12] - 55.0) < 1e-6           # old pad 1's note
         h.run(scenario)
@@ -238,7 +239,7 @@ class GrooveVersionTest(unittest.TestCase):
                 assert json.load(f)["v"] == groove.VERSION == 3
             yield from load_slot(h, 1)
             bass = h.looper._layers[1]
-            assert bass.events == [(0.0, 12), (0.1, 11)], bass.events
+            assert fakes.notes(bass.events) == [(0.0, 12), (0.1, 11)], bass.events
         h.run(scenario)
 
 

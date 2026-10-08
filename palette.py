@@ -39,4 +39,5 @@ SEQ_MODE    = scaled(PURPLE, DIM)   # LOOP/SEQ: in SEQ
 ARMED_CLEAR = ORANGE                # CLEAR: a clear waiting for MENU to confirm
 KEY_SELECT  = WHITE                 # KEY MODE: pad taps select
 KEY_MUTE    = MUTED                 # KEY MODE: pad taps mute
+KEY_ARP     = YELLOW                # KEY MODE: the active layer's arp is on
 PRESSED     = WHITE                 # MENU / UP / DOWN / VIEW while held; io_test

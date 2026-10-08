@@ -5,6 +5,7 @@ on top of them.
 """
 
 import importlib
+import importlib.util
 import unittest
 
 import fakes
@@ -261,6 +262,35 @@ class NeoKeyMainLoopTest(unittest.TestCase):
             sends = strip.shows - before
             assert sends <= 2.0 * 61, sends
         run(scenario)
+
+
+class ClockTest(unittest.TestCase):
+    """clock.now() itself (the other tests run on fakes.CLOCK instead)."""
+
+    def real_clock(self):
+        spec = importlib.util.spec_from_file_location(
+            "real_clock", fakes.ROOT + "/clock.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_seconds_since_the_run_started(self):
+        fakes.CLOCK.t = 7.0
+        clock = self.real_clock()
+        fakes.CLOCK.t = 7.25
+        self.assertEqual(clock.now(), 0.25)
+
+    def test_across_the_ticks_wrap(self):
+        saved = fakes.TICKS_OFFSET[0]
+        fakes.CLOCK.t = 0.0
+        fakes.TICKS_OFFSET[0] = (1 << 29) - 5   # 5 ms before ticks_ms() wraps
+        try:
+            clock = self.real_clock()
+            fakes.CLOCK.t = 0.012
+            self.assertLess(fakes.ticks_ms(), 10)   # wrapped
+            self.assertAlmostEqual(clock.now(), 0.012)
+        finally:
+            fakes.TICKS_OFFSET[0] = saved
 
 
 if __name__ == "__main__":

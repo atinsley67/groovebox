@@ -15,7 +15,7 @@ from harness import Harness, run
 from config import (BTN_MENU, BTN_PLAY_STOP, BTN_INC, BTN_DEC, BTN_RECORD,
                     BTN_MUTE, BTN_MODE, BTN_VIEW, BTN_CLEAR, NUM_LOOP_LAYERS)
 
-ROOT_LABELS = ["SND ", "ASGN", "BPM ", "EXT ", "MIRR", "SAVE", "LOAD", "AUT "]
+ROOT_LABELS = ["SND ", "ASGN", "ARP ", "BPM ", "EXT ", "MIRR", "SAVE", "LOAD", "AUT "]
 MSG = 0.7   # just past the menu's _MSG_DURATION
 
 

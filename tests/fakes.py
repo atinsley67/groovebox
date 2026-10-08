@@ -118,6 +118,14 @@ def kit_presses(synth, sound):
     return sum(synth.press_log.count(note) for note in sound["notes"])
 
 
+def notes(note_list, places=6):
+    """A loop layer's NoteList as plain (position, pad) pairs, positions
+    rounded: they're stored as 32-bit floats, so 0.1 comes back as
+    0.10000000149 on the desktop (on the device every float is 32-bit or
+    less already)."""
+    return [(round(pos, places), pad) for pos, pad in note_list]
+
+
 def live_pair(voice):
     """The pair of Notes a melodic voice last played on
     (sound_presets.build_melodic_voice_instance)."""
@@ -330,9 +338,6 @@ _module("neopixel", NeoPixel=NeoPixel)
 
 # ── Fake clock ────────────────────────────────────────────────────────────────
 
-import clock   # noqa: E402  (project module; needs the path set up above)
-
-
 class FakeClock:
     def __init__(self):
         self.t = 0.0
@@ -341,5 +346,8 @@ class FakeClock:
         return self.t
 
 
-CLOCK = FakeClock()
+CLOCK = FakeClock()   # before clock is imported: it reads ticks_ms() at import
+
+import clock   # noqa: E402  (project module; needs the path set up above)
+
 clock.now = CLOCK.now

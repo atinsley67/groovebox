@@ -20,24 +20,36 @@ class KeyboardView:
     """The active loop layer, as you play it:
       your press, not recording     yellow
       your press while recording    red (recording or overdubbing it)
+      the arp's note (arp on)       white: a playhead over your chord
       playback hitting the pad      blue, briefly
       a live press beats playback, so you can see your fingers in an overdub
       idle                          off
+    With the layer's arp on, "your press" is the fingers (arp.held_mask),
+    not the arp's notes (which the looper counts as held).
     """
 
-    def __init__(self, looper):
+    def __init__(self, looper, arp):
         self._looper = looper
+        self._arp    = arp
         self._frame  = [palette.OFF] * NUM_PADS
 
     def frame(self, now):
         looper = self._looper
-        held   = looper.held_mask
+        arp    = self._arp
+        if arp.is_on(looper.active_idx):
+            held = arp.held_mask
+            note = arp.note_pad
+        else:
+            held = looper.held_mask
+            note = None
         flash  = looper.flash_mask
         press  = palette.RECORDING if looper.capturing else palette.LIVE
         frame  = self._frame
         for pad in range(NUM_PADS):
             bit = 1 << pad
-            if held & bit:
+            if pad == note:
+                frame[pad] = palette.PLAYHEAD
+            elif held & bit:
                 frame[pad] = press
             elif flash & bit:
                 frame[pad] = palette.PLAYBACK

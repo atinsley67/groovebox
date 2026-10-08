@@ -17,7 +17,9 @@ thing, on press -- no long presses; only UP/DOWN repeat while held:
   RECORD     — the active mode's; "back" in the menu (closing it from root)
   UP/DOWN    — the active channel's volume ("V 80"); move / step in the menu
   VIEW       — the pads: the mode's own view <-> the channel view
-  KEY MODE   — in the channel view, what a pad tap does: select <-> mute
+  KEY MODE   — what a pad press does: in the channel view, select <->
+               mute; in LOOP's own view, play <-> arpeggiate (the active
+               layer's arp)
   MUTE       — the active mode's (mute the selected channel)
   CLEAR      — arm clearing the selected channel; CLEAR again: every
                channel in the mode. MENU confirms; any other function key
@@ -32,6 +34,15 @@ view, KEY MODE select (always the mode on entering): a tap selects that
 channel -- switching LOOP/SEQ if it's on the other side -- and goes
 straight back to that mode's own view. KEY MODE mute: a tap mutes /
 unmutes that channel and stays. Its pads never reach the modes.
+
+The arp (arp.py): with the active layer's arp on, LOOP's pad presses go
+to it instead of the looper, and what it plays goes on to the looper as
+exact presses (looper.handle_event's exact=True), after looper.update each
+frame -- so a note due on a take's first beat lands once recording has
+started. A release goes wherever its press went (arp_pads). It follows the
+tempo clock's ticks, and stop_arp() silences it before anything changes
+what the looper's pads mean: a layer or mode change, KEY MODE, CLEAR, a
+groove load.
 
 AUTO (arranger.py; the menu's AUT item switches it): mutes and unmutes
 channels on phrase boundaries to vary the groove. This loop feeds it the
@@ -59,8 +70,17 @@ Sync modes (sync_mode variable):
 import time
 import traceback
 
-import clock
 import config
+# The heap census (config.TIMING_PROBE): what each stage of boot leaves live
+# for every garbage collection to walk -- code, sound tables, voices, and
+# (in apply_groove) a loaded groove. See timing_probe.census.
+if config.TIMING_PROBE:
+    from timing_probe import census
+    census("boot")
+    import sound_presets   # noqa: F401 -- on its own, to measure its tables
+    census("sound tables")
+
+import clock
 import palette
 from config import (DEFAULT_BPM, STEPS_PER_BAR, NUM_LOOP_LAYERS, NUM_TRACKS,
                     MODE_LOOPER, MODE_SEQUENCER, NUM_MODES, MODE_NAMES,
@@ -76,7 +96,11 @@ from sequencer    import SequencerMode
 from menu         import MenuMode
 from pad_views    import KeyboardView, StepView, ChannelView
 from arranger     import Arranger
+from arp          import Arpeggiator
 import startup
+
+if config.TIMING_PROBE:
+    census("imports")
 
 _BEAT_PULSE_DURATION  = 0.06 # seconds: how long PLAY/STOP flashes bright per quarter note
 _FLASH_HOLD           = 1.0  # seconds: how long the volume readout stays up after the last change
@@ -100,7 +124,11 @@ def step_duration(bpm):
 
 def main():
     hw    = Hardware()
+    if config.TIMING_PROBE:
+        census("hardware")
     synth = SynthEngine()
+    if config.TIMING_PROBE:
+        census("voices")
     disp  = DisplayManager(hw.i2c)
 
     startup.run(hw, disp)
@@ -110,7 +138,8 @@ def main():
 
     seq        = SequencerMode(synth, disp)
     looper     = LooperMode(synth, disp, seq)
-    keyboard   = KeyboardView(looper)
+    arp        = Arpeggiator(NUM_LOOP_LAYERS, step_duration(DEFAULT_BPM))
+    keyboard   = KeyboardView(looper, arp)
     steps      = StepView(seq)
     channels   = ChannelView(looper, seq)
     arranger   = Arranger(looper, seq)
@@ -170,6 +199,25 @@ def main():
         bpm      = max(40, min(300, new_bpm))
         step_dur = step_duration(bpm)
         seq.step_dur = step_dur
+        arp.set_step_dur(step_dur)
+
+    # ── The arp ───────────────────────────────────────────────────────────────
+    # Pads pressed into the arp: their releases are its too, even if it's
+    # been switched off since.
+    arp_pads = set()
+
+    def arp_takes_pads():
+        return (not channel_view_on and active is looper and
+                arp.is_on(looper.active_idx))
+
+    def play_arp(events):
+        for etype, pad, t in events:
+            looper.handle_event((etype, pad), t, exact=True)
+
+    def stop_arp(now):
+        """Silence the arp, while the looper's pads still mean what they
+        did when it played them."""
+        play_arp(arp.stop(now))
 
     # Text flash (volume readout, LOCK, an armed CLEAR) over the active
     # mode's display: it holds the text (disp.hold_text) until flash_until,
@@ -227,6 +275,7 @@ def main():
             # pad flashes) can't paint over this before the hold expires.
             flash("LOCK", now, _LOCK_FLASH_HOLD)
             return False
+        stop_arp(now)
         if sync_mode == "snap" and looper.is_playing:
             mode_index = target_index
             active = modes[mode_index]
@@ -291,6 +340,8 @@ def main():
 
     def confirm_clear(now):
         nonlocal clear_scope
+        if active is looper:
+            stop_arp(now)
         if clear_scope == "all":
             active.clear_all()
         elif active is looper:
@@ -331,6 +382,8 @@ def main():
             return
         if not switch_mode(target, now):
             return
+        if mode is looper and n != looper.active_idx:
+            stop_arp(now)
         mode.select_channel(n)
         set_channel_view(False)
         if menu_active:
@@ -352,6 +405,7 @@ def main():
         a synced groove's loop and sequencer come back lockstepped the same
         way they do on any resume."""
         nonlocal sync_mode
+        stop_arp(now)
         seq.set_playing(False)
         looper.set_playing(False, now)
         # Before v3 a drum's DEC did nothing and six kit sounds were
@@ -369,6 +423,8 @@ def main():
         if looper.is_idle or sync_mode not in ("snap", "freeform"):
             sync_mode = "none"
         looper.set_snap_mode(sync_mode == "snap")
+        if config.TIMING_PROBE:
+            census("groove loaded")
 
     def tempo_locked():
         """BPM changes (the menu's BPM item) are blocked whenever a loop
@@ -383,7 +439,7 @@ def main():
     menu = MenuMode(synth, disp, looper, seq, lambda: active,
                     capture_groove=capture_groove, apply_groove=apply_groove,
                     get_bpm=lambda: bpm, set_bpm=set_bpm,
-                    tempo_locked=tempo_locked, arranger=arranger)
+                    tempo_locked=tempo_locked, arranger=arranger, arp=arp)
 
     def open_menu():
         nonlocal menu_active, flash_until, vol_held_dir
@@ -447,10 +503,12 @@ def main():
         disp.set_key_color(BTN_MODE, palette.LOOP_MODE if active is looper
                            else palette.SEQ_MODE)
 
-        if not channel_view_on:
-            key_mode = palette.OFF
-        else:
+        if channel_view_on:
             key_mode = palette.KEY_MUTE if key_mode_mute else palette.KEY_SELECT
+        elif active is looper and arp.is_on(looper.active_idx):
+            key_mode = palette.KEY_ARP
+        else:
+            key_mode = palette.OFF
         disp.set_key_color(BTN_KEY_MODE, key_mode)
 
         clear_on = clear_scope and int((now - clear_armed_at) * _CLEAR_BLINK_HZ * 2) % 2 == 0
@@ -464,6 +522,23 @@ def main():
         draw_lights = hw.timed_draw(draw_lights)
 
     disp.show(MODE_NAMES[mode_index])
+    if config.TIMING_PROBE:
+        # The probe's ALLOC line: what each part of a pass allocates.
+        hw.track("loop ev", looper, "handle_event", 3)
+        hw.track("seq ev", seq, "handle_event", 2)
+        hw.track("loop", looper, "update", 1)
+        hw.track("seq", seq, "update", 1)
+        hw.track("arp", arp, "update", 1)
+        hw.track("menu", menu, "update", 1)
+        hw.track("synth", synth, "update", 1)
+        hw.track("disp", disp, "update", 1)
+        census("ready")
+
+    # What the active mode (or the menu) gets from each pass's events: one
+    # list, emptied every pass rather than made anew -- the main loop
+    # allocates as little as it can, since garbage brings on the
+    # collections that stall the audio.
+    filtered = []
 
     while True:
         now    = clock.now()
@@ -472,8 +547,8 @@ def main():
             lights_at = 0.0   # show a press straight away
 
         # ── Route each event: pads, then function keys ────────────────────────
-        # `filtered` collects what the active mode (or the menu) gets.
-        filtered = []
+        if filtered:
+            filtered.clear()
         for event in events:
             etype, data, event_time = event
             if etype == BTN_DOWN:
@@ -489,6 +564,14 @@ def main():
                 channel_tap(data, now)
             elif etype == PAD_UP and data in view_pads:
                 view_pads.discard(data)
+            # ── ...or the arp's ───────────────────────────────────────────────
+            elif etype == PAD_DOWN and arp_takes_pads():
+                arp_pads.add(data)
+                arp.press(data, event_time, looper.active_idx,
+                          looper.count_in_start)
+            elif etype == PAD_UP and data in arp_pads:
+                arp_pads.discard(data)
+                arp.release(data, event_time)
             elif etype in (PAD_DOWN, PAD_UP):
                 filtered.append(event)
 
@@ -544,6 +627,13 @@ def main():
                 if channel_view_on:
                     key_mode_mute = not key_mode_mute
                     flash("MUT " if key_mode_mute else "SEL ", now, _LOCK_FLASH_HOLD)
+                elif active is looper:
+                    layer = looper.active_idx
+                    on = not arp.is_on(layer)
+                    if not on:
+                        stop_arp(now)
+                    arp.set_on(layer, on)
+                    flash("ARP " if on else "KEYS", now, _LOCK_FLASH_HOLD)
 
             elif data == BTN_CLEAR:
                 if not menu_active:
@@ -621,6 +711,8 @@ def main():
             tick_anchor = now
             tick_count  = 0
             bar_index   = -1
+        elif seq_was_playing and not seq.playing:
+            arp.unsync()
         seq_was_playing = seq.playing
 
         if seq.playing:
@@ -643,6 +735,7 @@ def main():
                 seq.handle_event(tick_evt, tick_at)
                 if looper.clock_needed:
                     looper.handle_event(tick_evt, tick_at)
+                arp.sync(tick_at, step_dur)
 
                 if step % 4 == 0:
                     beat_evt = (BEAT, beat_count)
@@ -661,11 +754,14 @@ def main():
                 if last_pass >= 0:
                     arrange(arranger.on_unit(last_pass, "pass"), now)
         seq.update(now)
+        # After looper.update: a take it just started gets a note due at
+        # its first beat.
+        play_arp(arp.update(now))
         if menu_active:
             menu.update(now)
 
         # ── Synth auto-release housekeeping ──────────────────────────────────
-        synth.update()
+        synth.update(now)
 
         # ── Lights, drawn last so they show this pass's state ─────────────────
         if now >= lights_at:

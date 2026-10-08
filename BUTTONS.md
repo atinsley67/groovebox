@@ -26,7 +26,7 @@ The pads show the current view (see *LOOP mode*, *SEQ mode* and *VIEW — the ch
 | RECORD | Red: recording or overdubbing. Blinking red: armed or counting in. In either mode |
 | MUTE | Grey: the active layer or selected track is muted |
 | LOOP/SEQ | Cyan in LOOP, purple in SEQ |
-| KEY MODE | In the channel view: white for select, grey for mute |
+| KEY MODE | In the channel view: white for select, grey for mute. In LOOP's own view: yellow while the layer's arpeggiator is on |
 | CLEAR | Blinking orange while a clear waits for you to confirm it |
 | MENU, UP, DOWN, VIEW | White while held |
 
@@ -42,7 +42,7 @@ The layout can be changed in `config.py` (`FUNC_LAYOUT`); see `HARDWARE.md`.
 | RECORD | Record (see *LOOP mode*) | Back one level; at the top, close the menu |
 | UP / DOWN | Volume of the active layer (LOOP) or selected track (SEQ), 5% a step | Move the highlight, or step a value |
 | VIEW | Switch the pads between the mode's own view and the channel view | Same |
-| KEY MODE | In the channel view: what a pad tap does (select / mute) | Same |
+| KEY MODE | In the channel view: what a pad tap does (select / mute). In LOOP's own view: the active layer's arpeggiator on / off (see *Arpeggiator*) | Same |
 | MUTE | Mute / unmute the active layer or selected track | Nothing |
 | CLEAR | Clear the active layer or selected track, or everything (see below) | Nothing |
 
@@ -113,6 +113,7 @@ Every part of the menu is a list. The display shows the highlighted item, and UP
 |---|---|---|
 | `SND ` | Edit a sound | LOOP and SEQ |
 | `ASGN` | Choose the layer's instrument | LOOP only |
+| `ARP ` | The layer's arpeggiator settings | LOOP only |
 | `BPM ` | Set the tempo | LOOP and SEQ |
 | `EXT ` | Double the loop length | LOOP only |
 | `MIRR` | Copy the layer's first half over its second | LOOP only |
@@ -207,6 +208,18 @@ The list starts on the layer's current instrument: `KIT `, `BASS`, `REES`, `ACID
 - **Keep or undo:** MENU keeps the choice. RECORD puts the original instrument back, with its sound edits intact.
 - **Defaults:** layer 1 is `KIT `, and layers 2–8 are `BASS` through `PAD ` in order.
 
+### ARP — arpeggiator settings (LOOP only)
+
+The active layer's arpeggiator (see *Arpeggiator* under *LOOP mode*). Each layer keeps its own settings. KEY MODE switches the arpeggiator itself on and off.
+
+| Item | Values |
+|---|---|
+| `MODE` | `UP  ` (low to high), `DN  ` (high to low), `UPDN` (up then down, without repeating the top or bottom note), `RAND` (random, never the same note twice in a row), `ORDR` (the order you pressed them) |
+| `RATE` | `8TH `, `16TH`, `32ND` |
+| `GATE` | How long each note lasts: `G 25`, `G 50`, `G 75`, `G100` (% of a step). At `G100` each note runs into the next, so a voice with `GLID` slides between them |
+
+MENU on an item edits it: UP / DOWN change the value, and MENU or RECORD goes back to the list. Defaults: `UP  `, `16TH`, `G 50`. The settings aren't saved with grooves (the notes an arpeggiator recorded are).
+
 ### EXT / MIRR — loop length (LOOP only)
 
 - **EXT** doubles the loop length for every layer. The new second half is silent, ready to fill.
@@ -285,10 +298,23 @@ There are **8 layers**, all sharing one loop length. Choose one in the channel v
 |---|---|
 | Yellow | A pad you're holding |
 | Red | A pad you're holding while recording or overdubbing it |
+| White | The note the arpeggiator is playing |
 | Blue flash | The loop playing that pad |
 | Off | Idle |
 
 Your own press wins over playback, so you can see your fingers during an overdub.
+
+### Arpeggiator
+
+**KEY MODE** (in LOOP's own view) switches the active layer's arpeggiator on (`ARP `, KEY MODE lit yellow) or off (`KEYS`). Each layer has its own, so the bass can arpeggiate while the other layers play as normal. It works on kit layers too, stepping through the drum pads you hold.
+
+With it on, hold some pads and it plays them one at a time, in time: the order, speed and note length are set in the menu (`ARP `). Add or lift fingers as it plays and the pattern follows. Lift them all and it stops. The pads you hold light yellow (red while recording), and the note it's playing lights white.
+
+- **Timing:** with the sequencer running it plays on the sequencer's beat. Otherwise it keeps its own time at the menu BPM, and has no fixed relation to a free-form loop's length.
+- **The first note** plays the moment you press. With the sequencer running, it belongs on the 1/16 line nearest your press, by the same rule as recorded notes (a press up to about two thirds of a step late counts as on the line; later than that goes to the next one). Every note after it follows that line's grid. During `ARM1` the first note belongs on the 1.
+- **Recording** captures exactly what it plays, as ordinary notes. They are already on the grid, so they're kept exactly where they fall (a `32ND` isn't moved onto the 1/16 grid). The first note is recorded on its line, the same length as the rest, even if you pressed a little late. Live, only that first note sounds slightly different.
+- **It stops** (silencing its note) when you switch it off, change layer or mode, clear the layer, or load a groove.
+- **Space:** a layer holds 256 notes, about 16 bars of `16TH` or 8 of `32ND`, fewer if it already has notes.
 
 ### Recording
 
