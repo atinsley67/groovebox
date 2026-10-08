@@ -100,6 +100,44 @@ class LFO:
         self.retriggers += 1
 
 
+class MathOperation:
+    SUM = "sum"
+
+
+class Math:
+    def __init__(self, operation, a, b=0.0, c=1.0):
+        self.operation = operation
+        self.a = a
+        self.b = b
+        self.c = c
+
+
+def kit_presses(synth, sound):
+    """How many times a kit sound has been pressed: it plays on two Notes
+    in turn (sound_presets._drum_entry)."""
+    return sum(synth.press_log.count(note) for note in sound["notes"])
+
+
+def notes(note_list, places=6):
+    """A loop layer's NoteList as plain (position, pad) pairs, positions
+    rounded: they're stored as 32-bit floats, so 0.1 comes back as
+    0.10000000149 on the desktop (on the device every float is 32-bit or
+    less already)."""
+    return [(round(pos, places), pad) for pos, pad in note_list]
+
+
+def live_pair(voice):
+    """The pair of Notes a melodic voice last played on
+    (sound_presets.build_melodic_voice_instance)."""
+    return voice["pairs"][voice["live"]]
+
+
+def level(amplitude):
+    """A note's amplitude as a number: an amplitude-shape LFO's level is
+    its scale (sound_presets._drum_entry)."""
+    return amplitude.scale if isinstance(amplitude, LFO) else amplitude
+
+
 class Note:
     def __init__(self, frequency, panning=0.0, waveform=None, envelope=None,
                  amplitude=1.0, bend=0.0, filter=None, ring_frequency=0.0,
@@ -137,12 +175,27 @@ class Synthesizer:
         for note in _as_list(notes):
             self.pressed = [n for n in self.pressed if n is not note]
 
+    def note_info(self, note):
+        """A pressed note reads as sustaining at full level; anything else
+        as not playing (the fake keeps no release tails)."""
+        if any(n is note for n in self.pressed):
+            return (EnvelopeState.SUSTAIN, 1.0)
+        return (None, 0.0)
+
     def deinit(self):
         pass
 
 
+class EnvelopeState:
+    ATTACK  = "attack"
+    DECAY   = "decay"
+    SUSTAIN = "sustain"
+    RELEASE = "release"
+
+
 _module("synthio", FilterMode=FilterMode, Envelope=Envelope, Biquad=Biquad,
-        LFO=LFO, Note=Note, Synthesizer=Synthesizer)
+        LFO=LFO, Math=Math, MathOperation=MathOperation, Note=Note,
+        Synthesizer=Synthesizer, EnvelopeState=EnvelopeState)
 
 
 # ── Adafruit display library ──────────────────────────────────────────────────
@@ -285,9 +338,6 @@ _module("neopixel", NeoPixel=NeoPixel)
 
 # ── Fake clock ────────────────────────────────────────────────────────────────
 
-import clock   # noqa: E402  (project module; needs the path set up above)
-
-
 class FakeClock:
     def __init__(self):
         self.t = 0.0
@@ -296,5 +346,8 @@ class FakeClock:
         return self.t
 
 
-CLOCK = FakeClock()
+CLOCK = FakeClock()   # before clock is imported: it reads ticks_ms() at import
+
+import clock   # noqa: E402  (project module; needs the path set up above)
+
 clock.now = CLOCK.now

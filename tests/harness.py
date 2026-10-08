@@ -19,7 +19,7 @@ fake NeoPixel strips (see pad_color / key_color).
 
 Time is fake (tests/fakes.py): every main-loop pass is one FRAME of it, so
 runs are deterministic and much faster than real time. The instances
-code.py builds (hw, synth, looper, seq, menu, disp) are captured for
+code.py builds (hw, synth, looper, seq, menu, disp, arp) are captured for
 inspection.
 """
 
@@ -31,6 +31,7 @@ import time
 
 import fakes
 
+import arp
 import config
 import display
 import groove
@@ -58,6 +59,7 @@ class Harness:
         self.seq    = None
         self.menu   = None
         self.disp   = None
+        self.arp    = None
         self._scenario = None
         self._wake_at  = 0.0
         self._error    = None
@@ -102,6 +104,16 @@ class Harness:
         yield seconds
         self.up(button)
         yield 0.03
+
+    def open_menu_at(self, label, limit=20):
+        """Open the menu and step the highlight to a root item by its
+        label -- from wherever it opens (it remembers the last item)."""
+        yield from self.tap(config.BTN_MENU)
+        for _ in range(limit):
+            if self.text == label:
+                return
+            yield from self.tap(config.BTN_INC)
+        raise AssertionError(f"no {label!r} in the menu's root list")
 
     def pad_tap(self, pad, hold=0.03, after=0.03):
         self.pad_down(pad)
@@ -187,6 +199,7 @@ class Harness:
             (sequencer, "SequencerMode", recording(sequencer.SequencerMode, "seq")),
             (menu, "MenuMode", recording(menu.MenuMode, "menu")),
             (display, "DisplayManager", recording(display.DisplayManager, "disp")),
+            (arp, "Arpeggiator", recording(arp.Arpeggiator, "arp")),
             (startup, "run", lambda hw, disp: None),
             (groove, "_DIR", self.groove_dir),
             (time, "sleep", crashed),

@@ -17,14 +17,15 @@ It owns only the 4-char text and these keys:
                auto-repeat)
 Everything else stays with code.py and the active mode: LOOP/SEQ and a
 channel-view select retarget the menu, PLAY/STOP stays the transport, the
-pads keep playing the active mode (which keeps the LEDs), and MUTE / CLEAR
-do nothing while the menu is open.
+pads keep playing the active mode (which keeps the LEDs), MUTE stays the
+active mode's, and CLEAR just flashes MENU while the menu is open.
 
 Every level is a list: the display shows the highlighted item's label, and
 UP/DOWN wrap around it.
 
-Root (always where the menu opens): SOUND, ASSIGN, BPM, EXTEND, MIRROR,
-SAVE, LOAD, AUTO -- the last one DOWN from the top.
+Root: SOUND, ASSIGN, ARP, BPM, KEY, SCALE, EXTEND, MIRROR, SAVE, LOAD,
+AUTO -- the last one DOWN from the top. The menu always opens at root, on
+the item last used (SOUND the first time), so a repeat tweak is one press.
 
 AUTO (either mode): MENU switches the mute arranger (arranger.py) on or
   off; the label shows "AUT*" while it runs.
@@ -47,23 +48,44 @@ ASSIGN (LOOP only): pick the active layer's instrument. The name shows
   layer's original instance, SOUND edits intact. Changing layer keeps the
   pending choice for the old layer.
 
+ARP (LOOP only): the active layer's arpeggiator settings (arp.SCHEMA:
+  MODE, RATE, GATE), a list like SOUND's without RST -- MENU on one edits
+  it (UP/DOWN cycle its value) until MENU or RECORD returns to the list.
+  Follows the active layer; leaving LOOP mode returns to root. KEY MODE
+  (code.py) switches the arp itself on and off.
+
 BPM: MENU edits the tempo, shown as "b120" (code.py's set_bpm, so the clock
   re-anchors without a jump). While code.py's tempo_locked() holds, it
   flashes LOCK and the value can't change. MENU or RECORD returns.
 
+KEY / SCALE (either mode): MENU edits every melodic layer's key ("A   ",
+  "C#  ") or scale ("MINP", "DOR "...) -- scales.py, held by the synth.
+  Each step applies at once, so recorded loops re-voice live as you
+  browse. MENU or RECORD returns.
+
 EXTEND / MIRROR (LOOP only): run in place from root -- see
-  LooperMode.extend_loop / mirror_active_layer. "N/A " if they can't run.
+  LooperMode.extend_loop / mirror_active_layer. MENU shows SURE and a
+  second MENU runs it (MIRROR overwrites half a layer: a slip shouldn't);
+  UP/DOWN or RECORD cancels. "N/A " if they can't run.
 
 SAVE / LOAD (either mode): pick one of groove.NUM_SLOTS slots. The label is
   S or L, the two-digit slot number, and "*" if the slot holds a groove:
   "S03*" saves over slot 3, "S03 " saves to an empty slot 3, "L03*" loads
-  slot 3. MENU saves / loads and returns to root, flashing DONE or the
-  failure ("RO  ", "FULL", "ERR "); MENU on an empty LOAD slot just flashes
-  "N/A ". Loading replaces the whole session and stops the transport.
+  slot 3. MENU saves / loads; when it works the menu closes (code.py's
+  file_done shows DONE over the mode), straight back to playing. A failure
+  ("RO  ", "FULL", "ERR ") flashes and stays on the slot list to try
+  another; MENU on an empty LOAD slot just flashes "N/A ". Loading
+  replaces the whole session and stops the transport.
+  Both stop playback first (code.py's stop_playback, which fades out
+  everything sounding) and do the file work _FILE_FADE later, once it's
+  silent: the work stalls the main loop for up to ~0.6 s, and anything
+  still playing through that would click. Keys wait until it's done.
 """
 
+import arp as arp_settings
 import clock
 import groove
+import scales
 import synth_params
 from event_types import BTN_DOWN, BTN_UP
 from config import BTN_INC, BTN_DEC, BTN_MENU
@@ -72,11 +94,15 @@ _REPEAT_DELAY    = 0.4   # seconds UP/DOWN must be held before auto-repeat start
 _REPEAT_INTERVAL = 0.12  # seconds between auto-repeat steps
 _MSG_DURATION    = 0.6   # seconds a status message ("N/A ", "DONE", a name) is shown
 _ASSIGN_SETTLE   = 0.2   # seconds the ASSIGN highlight must rest before the sound swaps
+_FILE_FADE       = 0.08  # seconds from SAVE / LOAD's stop to the file work: the notes' 50 ms fade
 
 _ROOT   = "root"
 _SOUND  = "sound"
 _ASSIGN = "assign"
+_ARP    = "arp"
 _BPM    = "bpm"
+_KEY    = "key"
+_SCALE  = "scale"
 _SAVE   = "save"
 _LOAD   = "load"
 
@@ -84,7 +110,10 @@ _LOAD   = "load"
 _ROOT_ITEMS = [
     ("SND ", _SOUND),
     ("ASGN", _ASSIGN),
+    ("ARP ", _ARP),
     ("BPM ", _BPM),
+    ("KEY ", _KEY),
+    ("SCAL", _SCALE),
     ("EXT ", "extend"),
     ("MIRR", "mirror"),
     ("SAVE", _SAVE),
@@ -96,29 +125,38 @@ _ROOT_ITEMS = [
 class MenuMode:
     def __init__(self, synth, display, looper, seq, get_active_mode,
                  capture_groove, apply_groove, get_bpm, set_bpm, tempo_locked,
-                 arranger):
+                 arranger, arp, stop_playback, file_done):
         self._synth           = synth
         self._display         = display
         self._looper          = looper
         self._seq             = seq
         self._get_active_mode = get_active_mode
         # code.py callbacks: capture_groove() -> dict; apply_groove(dict, now);
-        # get_bpm() -> int; set_bpm(int); tempo_locked() -> bool
+        # get_bpm() -> int; set_bpm(int); tempo_locked() -> bool;
+        # stop_playback(now): stop and fade out, before SAVE / LOAD;
+        # file_done(text): a SAVE / LOAD worked -- close the menu, show text
         self._capture_groove  = capture_groove
         self._apply_groove    = apply_groove
         self._get_bpm         = get_bpm
         self._set_bpm         = set_bpm
         self._tempo_locked    = tempo_locked
+        self._stop_playback   = stop_playback
+        self._file_done       = file_done
         self._arranger        = arranger   # AUTO (arranger.py): start() / stop() / running
+        self._arp             = arp        # arp.py: get() / set() per layer
 
         self._section  = _ROOT
-        self._root_idx = 0
+        self._root_idx = 0          # remembered across opens
+        self._root_confirm = False  # MENU pressed once on EXTEND / MIRROR: showing SURE
 
         # SOUND
         self._sound_idx = {"voice": 0, "drum": 0}   # remembered highlight, per schema
         self._editing   = False   # MENU pressed on a param: UP/DOWN step its value
         self._confirm   = False   # MENU pressed once on RST: showing SURE
         self._target    = None    # _target_ident() last seen, to flash a change
+
+        # ARP (shares _editing with SOUND: only one is open at a time)
+        self._arp_idx = 0         # remembered highlight
 
         # ASSIGN
         self._assign_layer       = 0
@@ -130,6 +168,8 @@ class MenuMode:
         # SAVE / LOAD
         self._slot       = 0   # remembered across visits: re-saving goes to the same slot
         self._used_slots = 0   # groove.used_slots() bitmask, read on entry
+        self._file_action = None   # _SAVE / _LOAD waiting out _FILE_FADE
+        self._file_at     = 0.0
 
         self._held_button    = None   # BTN_INC / BTN_DEC / None
         self._next_repeat_at = 0.0
@@ -141,7 +181,7 @@ class MenuMode:
 
     def enter(self):
         self._section     = _ROOT
-        self._root_idx    = 0
+        self._root_confirm = False
         self._editing     = False
         self._confirm     = False
         self._held_button = None
@@ -149,6 +189,8 @@ class MenuMode:
         self._refresh_display()
 
     def exit(self):
+        if self._file_action:
+            self._run_file_action(clock.now(), closing=True)
         if self._section == _ASSIGN:
             self._assign_commit()
         self._section     = _ROOT
@@ -159,11 +201,17 @@ class MenuMode:
     def back(self, now):
         """RECORD pressed. Returns True if the menu should close (pressed
         at root); otherwise steps back one level, cancelling ASSIGN."""
+        if self._file_action:
+            return False   # a save / load is under way
         self._held_button = None
         self._msg_until   = 0.0
         if self._section == _ROOT:
+            if self._root_confirm:
+                self._root_confirm = False   # cancel SURE, stay open
+                self._refresh_display()
+                return False
             return True
-        if self._section == _SOUND and (self._editing or self._confirm):
+        if self._section in (_SOUND, _ARP) and (self._editing or self._confirm):
             self._editing = False   # back to the param list
             self._confirm = False
         else:
@@ -176,6 +224,8 @@ class MenuMode:
     # ── Event handling ────────────────────────────────────────────────────────
 
     def handle_event(self, event, now):
+        if self._file_action:
+            return   # a save / load is under way
         etype, data = event
 
         if etype == BTN_DOWN and data == BTN_MENU:
@@ -193,6 +243,7 @@ class MenuMode:
     def update(self, now):
         """Call once per main-loop iteration while this overlay is active."""
         self._sync_assign_target()
+        self._sync_arp_section()
         if self._section == _SOUND:
             self._sync_sound_target(now)
 
@@ -204,6 +255,9 @@ class MenuMode:
         if self._assign_swap_at and now >= self._assign_swap_at:
             self._assign_apply()
 
+        if self._file_action and now >= self._file_at:
+            self._run_file_action(now)
+
         if self._msg_until and now >= self._msg_until:
             self._msg_until = 0.0
             self._refresh_display()
@@ -211,7 +265,10 @@ class MenuMode:
     def refresh_display(self):
         """Called by code.py after anything that may have retargeted the
         menu (layer/track changes, LOOP<->SEQ switches)."""
+        if self._root_confirm and not self._loop_active():
+            self._root_confirm = False   # EXTEND / MIRROR are loop-only
         self._sync_assign_target()
+        self._sync_arp_section()
         self._refresh_display()
 
     # ── Dispatch per section ──────────────────────────────────────────────────
@@ -219,16 +276,25 @@ class MenuMode:
     def _step(self, direction, now):
         if self._section == _ROOT:
             self._root_idx = (self._root_idx + direction) % len(_ROOT_ITEMS)
+            self._root_confirm = False
         elif self._section == _SOUND:
             self._sound_step(direction)
         elif self._section == _ASSIGN:
             count = len(self._synth.list_instrument_names())
             self._assign_move((self._assign_highlight + direction) % count, now)
+        elif self._section == _ARP:
+            self._arp_step(direction)
         elif self._section == _BPM:
             if self._tempo_locked():
                 self._flash("LOCK", now)
             else:
                 self._set_bpm(self._get_bpm() + direction)
+        elif self._section == _KEY:
+            synth = self._synth
+            synth.set_tuning((synth.key + direction) % len(scales.KEY_NAMES), synth.scale)
+        elif self._section == _SCALE:
+            synth = self._synth
+            synth.set_tuning(synth.key, (synth.scale + direction) % len(scales.SCALES))
         elif self._section in (_SAVE, _LOAD):
             self._slot = (self._slot + direction) % groove.NUM_SLOTS
         self._refresh_display()
@@ -242,6 +308,8 @@ class MenuMode:
                 self._section = _BPM
                 if self._tempo_locked():
                     self._flash("LOCK", now)
+            elif action in (_KEY, _SCALE):
+                self._section = action
             elif action in (_SAVE, _LOAD):
                 self._section    = action
                 self._used_slots = groove.used_slots()
@@ -251,13 +319,25 @@ class MenuMode:
                 else:
                     self._arranger.start()
             elif not self._loop_active():
-                self._flash("N/A ", now)   # ASSIGN/EXTEND/MIRROR are loop-only
+                self._root_confirm = False
+                self._flash("N/A ", now)   # ASSIGN/ARP/EXTEND/MIRROR are loop-only
             elif action == _ASSIGN:
                 self._enter_assign()
-            elif action == "extend":
-                self._flash("DONE" if self._looper.extend_loop(now) else "N/A ", now)
-            elif action == "mirror":
-                self._flash("DONE" if self._looper.mirror_active_layer(now) else "N/A ", now)
+            elif action == _ARP:
+                self._section = _ARP
+                self._editing = False
+            elif not self._root_confirm:
+                if self._looper.can_modify_length():
+                    self._root_confirm = True   # EXTEND / MIRROR: SURE first
+                else:
+                    self._flash("N/A ", now)
+            else:
+                self._root_confirm = False
+                if action == "extend":
+                    done = self._looper.extend_loop(now)
+                else:
+                    done = self._looper.mirror_active_layer(now)
+                self._flash("DONE" if done else "N/A ", now)
 
         elif self._section == _SOUND:
             schema, key, _, _, reset, _ = self._edit_target()
@@ -277,19 +357,20 @@ class MenuMode:
             self._assign_commit()
             self._section = _ROOT
 
-        elif self._section == _BPM:
+        elif self._section == _ARP:
+            self._editing = not self._editing
+
+        elif self._section in (_BPM, _KEY, _SCALE):
             self._section = _ROOT
 
         elif self._section == _SAVE:
-            self._flash(self._save(), clock.now())
-            self._section = _ROOT
+            self._begin_file_action(_SAVE, now)
 
         elif self._section == _LOAD:
             if not self._used_slots & (1 << self._slot):
                 self._flash("N/A ", now)
             else:
-                self._flash(self._load(now), clock.now())
-                self._section = _ROOT
+                self._begin_file_action(_LOAD, now)
 
         self._held_button = None
         self._refresh_display()
@@ -418,10 +499,48 @@ class MenuMode:
             self._assign_commit()
             self._enter_assign()
 
+    # ── ARP ───────────────────────────────────────────────────────────────────
+
+    def _arp_step(self, direction):
+        if self._editing:
+            entry = arp_settings.SCHEMA[self._arp_idx]
+            layer = self._looper.active_idx
+            value = self._arp.get(layer, entry["key"])
+            self._arp.set(layer, entry["key"],
+                          (value + direction) % len(entry["names"]))
+        else:
+            self._arp_idx = (self._arp_idx + direction) % len(arp_settings.SCHEMA)
+
+    def _sync_arp_section(self):
+        """ARP is the active layer's, so it closes on leaving LOOP mode."""
+        if self._section == _ARP and not self._loop_active():
+            self._section = _ROOT
+            self._editing = False
+
     # ── SAVE / LOAD ───────────────────────────────────────────────────────────
-    # Both return the status to flash. Flashed from clock.now() rather
-    # than the press time: a flash write can take long enough to use up the
-    # whole message window before it's ever drawn.
+    # _save / _load return the status to flash. Flashed from clock.now()
+    # rather than the press time: a flash write can take long enough to use
+    # up the whole message window before it's ever drawn.
+
+    def _begin_file_action(self, action, now):
+        self._stop_playback(now)
+        self._file_action = action
+        self._file_at     = now + _FILE_FADE
+
+    def _run_file_action(self, now, closing=False):
+        """Do the waiting SAVE / LOAD. Done: back to root and code.py closes
+        the menu (unless it's closing already). Failed: flash why, and stay
+        on the slot list to try another."""
+        action = self._file_action
+        self._file_action = None
+        status = self._save() if action == _SAVE else self._load(now)
+        if status == "DONE":
+            self._section = _ROOT
+            if not closing:
+                self._file_done(status)
+            return
+        self._flash(status, clock.now())
+        self._refresh_display()
 
     def _save(self):
         try:
@@ -455,7 +574,9 @@ class MenuMode:
 
         elif self._section == _ROOT:
             text, action = _ROOT_ITEMS[self._root_idx]
-            if action == "auto" and self._arranger.running:
+            if self._root_confirm:
+                text = "SURE"
+            elif action == "auto" and self._arranger.running:
                 text = "AUT*"
 
         elif self._section == _SOUND:
@@ -471,8 +592,21 @@ class MenuMode:
         elif self._section == _ASSIGN:
             text = self._synth.list_instrument_names()[self._assign_highlight]
 
+        elif self._section == _ARP:
+            entry = arp_settings.SCHEMA[self._arp_idx]
+            if self._editing:
+                text = entry["names"][self._arp.get(self._looper.active_idx, entry["key"])]
+            else:
+                text = entry["label"]
+
         elif self._section == _BPM:
             text = f"b{self._get_bpm():3d}"
+
+        elif self._section == _KEY:
+            text = scales.KEY_NAMES[self._synth.key]
+
+        elif self._section == _SCALE:
+            text = scales.SCALES[self._synth.scale][0]
 
         else:   # SAVE / LOAD
             prefix = "S" if self._section == _SAVE else "L"

@@ -29,7 +29,8 @@ class SchemaTest(unittest.TestCase):
         self.check_schema(synth_params.PARAM_SCHEMA)
         self.assertEqual([e["label"] for e in synth_params.PARAM_SCHEMA],
                          ["AMP ", "WAVE", "ATK ", "DEC ", "SUS ", "REL ", "CUT ",
-                          "RES ", "LFOR", "LFOD", "LDST", "RING", "DTUN", "RST "])
+                          "RES ", "LFOR", "LFOD", "LDST", "RING", "DTUN", "PENV", "PTIM",
+                          "GLID", "RST "])
 
     def test_drum_schema(self):
         self.check_schema(synth_params.DRUM_PARAM_SCHEMA)
@@ -41,7 +42,7 @@ class SchemaTest(unittest.TestCase):
         self.assertAlmostEqual(synth_params.step_value(amp, 0.5, 1), 0.55)
         self.assertEqual(synth_params.step_value(amp, 1.0, 1), 1.0)
         wave = synth_params.PARAM_SCHEMA[1]
-        self.assertEqual(synth_params.step_value(wave, 3, 1), 0)
+        self.assertEqual(synth_params.step_value(wave, synth_params.NUM_WAVEFORMS - 1, 1), 0)
 
 
 class GrooveSlotTest(unittest.TestCase):

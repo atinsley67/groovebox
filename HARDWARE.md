@@ -78,7 +78,7 @@ Comment the line back out to return to the app.
 
 ## Timing
 
-`config.TIMING_PROBE = True` prints main-loop timing to the serial console every 5 s; `timing_probe.py` explains each field. Past runs, for comparison:
+`config.TIMING_PROBE = True` prints main-loop timing to the serial console every 5 s; `timing_probe.py` explains each field. It also prints a `HEAP` line at each stage of boot and after a groove loads: memory in use and how long a garbage collection takes at that point, so a slow collection can be traced to code, sound tables, voices or recorded loops. Past runs, for comparison:
 
 | File | Run |
 |---|---|

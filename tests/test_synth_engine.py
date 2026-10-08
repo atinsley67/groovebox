@@ -2,8 +2,9 @@
 
 import unittest
 
-import fakes  # noqa: F401  (installs the CircuitPython fakes first)
+import fakes  # installs the CircuitPython fakes first
 
+from sound_presets import voice_notes
 from synth_engine import SynthEngine
 
 KIT_LAYER  = 0   # default layer 0 = KIT
@@ -11,7 +12,7 @@ BASS_LAYER = 1   # default layer 1 = BASS (melodic)
 
 
 def kit_amplitudes(engine, layer):
-    return [s["note"].amplitude for s in engine._channels[layer]["data"]]
+    return [fakes.level(s["notes"][0].amplitude) for s in engine._channels[layer]["data"]]
 
 
 def kit_expected(engine, layer, gain):
@@ -39,8 +40,8 @@ class ChannelVolumeTest(unittest.TestCase):
         voice = self.engine._channels[BASS_LAYER]["data"]
         self.engine.set_channel_volume(BASS_LAYER, 40)
         want = voice["params"]["amp"] * 0.4
-        self.assertAlmostEqual(voice["note"].amplitude, want)
-        self.assertAlmostEqual(voice["detune_note"].amplitude, want)
+        for note in voice_notes(voice):
+            self.assertAlmostEqual(note.amplitude, want)
 
     def test_melodic_tremolo_range_scales(self):
         self.engine.set_channel_param(BASS_LAYER, None, "lfo_depth", 0.5)
@@ -49,8 +50,8 @@ class ChannelVolumeTest(unittest.TestCase):
         voice = self.engine._channels[BASS_LAYER]["data"]
         amp   = voice["params"]["amp"] * 0.5
         lfo   = voice["lfo"]
-        self.assertIs(voice["note"].amplitude, lfo)
-        self.assertIs(voice["detune_note"].amplitude, lfo)
+        for note in voice_notes(voice):
+            self.assertIs(note.amplitude, lfo)
         self.assertAlmostEqual(lfo.scale, amp * 0.5 / 2)
         self.assertAlmostEqual(lfo.offset, amp * (1.0 - 0.5 / 2))
 
@@ -58,14 +59,14 @@ class ChannelVolumeTest(unittest.TestCase):
         self.engine.set_channel_volume(BASS_LAYER, 50)
         self.engine.set_channel_param(BASS_LAYER, None, "amp", 0.6)
         voice = self.engine._channels[BASS_LAYER]["data"]
-        self.assertAlmostEqual(voice["note"].amplitude, 0.3)
+        self.assertAlmostEqual(voice_notes(voice)[0].amplitude, 0.3)
 
     def test_reset_keeps_volume(self):
         self.engine.set_channel_volume(KIT_LAYER, 20)
         self.engine.set_channel_param(KIT_LAYER, 3, "amp", 0.1)
         self.engine.reset_channel(KIT_LAYER, 3)
         sound = self.engine._channels[KIT_LAYER]["data"][3]
-        self.assertAlmostEqual(sound["note"].amplitude, sound["defaults"]["amp"] * 0.2)
+        self.assertAlmostEqual(fakes.level(sound["notes"][0].amplitude), sound["defaults"]["amp"] * 0.2)
 
     def test_volume_is_clamped(self):
         self.engine.set_channel_volume(KIT_LAYER, 150)
@@ -82,15 +83,15 @@ class ChannelVolumeTest(unittest.TestCase):
     def test_track_volume_scales_one_sequencer_sound(self):
         kit = self.engine._sequencer_kit
         self.engine.set_track_volume(2, 40)
-        self.assertAlmostEqual(kit[2]["note"].amplitude, kit[2]["params"]["amp"] * 0.4)
-        self.assertAlmostEqual(kit[3]["note"].amplitude, kit[3]["params"]["amp"])
+        self.assertAlmostEqual(fakes.level(kit[2]["notes"][0].amplitude), kit[2]["params"]["amp"] * 0.4)
+        self.assertAlmostEqual(fakes.level(kit[3]["notes"][0].amplitude), kit[3]["params"]["amp"])
         # A loop layer's own kit copy is a different channel.
         self.assertEqual(kit_amplitudes(self.engine, KIT_LAYER),
                          kit_expected(self.engine, KIT_LAYER, 1.0))
         self.engine.set_drum_param(2, "amp", 0.5)
-        self.assertAlmostEqual(kit[2]["note"].amplitude, 0.2)
+        self.assertAlmostEqual(fakes.level(kit[2]["notes"][0].amplitude), 0.2)
         self.engine.reset_drum(2)
-        self.assertAlmostEqual(kit[2]["note"].amplitude, kit[2]["defaults"]["amp"] * 0.4)
+        self.assertAlmostEqual(fakes.level(kit[2]["notes"][0].amplitude), kit[2]["defaults"]["amp"] * 0.4)
 
 
 class VolumeAcrossAssignTest(unittest.TestCase):
@@ -110,7 +111,7 @@ class VolumeAcrossAssignTest(unittest.TestCase):
         self.engine.set_channel_volume(BASS_LAYER, 60)
         self.engine.restore_channel(BASS_LAYER, old)
         voice = self.engine._channels[BASS_LAYER]["data"]
-        self.assertAlmostEqual(voice["note"].amplitude, voice["params"]["amp"] * 0.6)
+        self.assertAlmostEqual(voice_notes(voice)[0].amplitude, voice["params"]["amp"] * 0.6)
 
 
 class VolumeGrooveTest(unittest.TestCase):
@@ -132,9 +133,9 @@ class VolumeGrooveTest(unittest.TestCase):
                              kit_expected(fresh, KIT_LAYER, 0.45)):
             self.assertAlmostEqual(got, want)
         voice = fresh._channels[BASS_LAYER]["data"]
-        self.assertAlmostEqual(voice["note"].amplitude, voice["params"]["amp"] * 0.7)
+        self.assertAlmostEqual(voice_notes(voice)[0].amplitude, voice["params"]["amp"] * 0.7)
         kit = fresh._sequencer_kit
-        self.assertAlmostEqual(kit[5]["note"].amplitude, kit[5]["params"]["amp"] * 0.1)
+        self.assertAlmostEqual(fakes.level(kit[5]["notes"][0].amplitude), kit[5]["params"]["amp"] * 0.1)
 
     def test_groove_without_volumes_loads_at_full(self):
         engine = SynthEngine()
@@ -145,7 +146,7 @@ class VolumeGrooveTest(unittest.TestCase):
         engine.restore_sounds(snap)
         self.assertEqual(engine.channel_volume(KIT_LAYER), 100)
         self.assertEqual(engine.track_volume(0), 100)
-        self.assertAlmostEqual(engine._sequencer_kit[0]["note"].amplitude,
+        self.assertAlmostEqual(fakes.level(engine._sequencer_kit[0]["notes"][0].amplitude),
                                engine._sequencer_kit[0]["params"]["amp"])
 
     def test_malformed_volumes_are_tolerated(self):

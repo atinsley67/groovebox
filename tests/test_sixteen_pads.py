@@ -8,7 +8,7 @@ import json
 import os
 import unittest
 
-import fakes  # noqa: F401  (installs the CircuitPython fakes first)
+import fakes  # installs the CircuitPython fakes first
 
 import config
 import groove
@@ -22,15 +22,14 @@ from synth_engine import SynthEngine
 
 KIT_LAYER  = 0
 BASS_LAYER = 1
-LOAD_ITEM  = 6   # LOAD's place in the menu's root list
 
 
-def kit_note(h, layer, pad):
-    return h.synth._channels[layer]["data"][pad]["note"]
+def kit_sound(h, layer, pad):
+    return h.synth._channels[layer]["data"][pad]
 
 
-def presses(h, note):
-    return h.synth._synth.press_log.count(note)
+def presses(h, sound):
+    return fakes.kit_presses(h.synth._synth, sound)
 
 
 def switch_mode(h):
@@ -38,12 +37,12 @@ def switch_mode(h):
 
 
 def load_slot(h, slot):
-    yield from h.tap(BTN_MENU)
-    yield from h.taps(BTN_INC, LOAD_ITEM)
+    yield from h.open_menu_at("LOAD")
     yield from h.tap(BTN_MENU)
     yield from h.taps(BTN_INC, slot)
     assert h.text == f"L{slot + 1:02d}*", h.text
     yield from h.tap(BTN_MENU)
+    yield 0.1                                     # the fade before the file work
     assert h.text == "DONE", h.text
 
 
@@ -79,9 +78,8 @@ class KitTest(unittest.TestCase):
         engine = SynthEngine()
         for pad in range(16):
             engine.trigger_layer_pad(KIT_LAYER, pad)
-        notes = [s["note"] for s in engine._channels[KIT_LAYER]["data"]]
-        for note in notes:
-            self.assertIn(note, engine._synth.press_log)
+        for sound in engine._channels[KIT_LAYER]["data"]:
+            self.assertEqual(fakes.kit_presses(engine._synth, sound), 1, sound["name"])
 
 
 class MelodicLayoutTest(unittest.TestCase):
@@ -96,15 +94,15 @@ class MelodicLayoutTest(unittest.TestCase):
     def test_three_octaves_of_pentatonic(self):
         engine = SynthEngine()
         voice = engine._channels[BASS_LAYER]["data"]    # root A1, 55 Hz
-        by_note = [voice["scale"][keymap.PAD_OF_NOTE[n]] for n in range(16)]
+        by_note = [engine.pad_frequency(BASS_LAYER, keymap.PAD_OF_NOTE[n]) for n in range(16)]
         self.assertAlmostEqual(by_note[0], 55.0)
         self.assertAlmostEqual(by_note[5], 110.0)
         self.assertAlmostEqual(by_note[15], 440.0)
         self.assertEqual(by_note, sorted(by_note))
         engine.trigger_layer_pad(BASS_LAYER, 12)
-        self.assertAlmostEqual(voice["note"].frequency, 55.0)
+        self.assertAlmostEqual(fakes.live_pair(voice)["note"].frequency, 55.0)
         engine.trigger_layer_pad(BASS_LAYER, 3)
-        self.assertAlmostEqual(voice["note"].frequency, 440.0)
+        self.assertAlmostEqual(fakes.live_pair(voice)["note"].frequency, 440.0)
 
 
 class LooperSixteenPadTest(unittest.TestCase):
@@ -118,7 +116,7 @@ class LooperSixteenPadTest(unittest.TestCase):
             yield from h.tap(BTN_RECORD)                  # commit: plays
             layer = h.looper._layers[KIT_LAYER]
             assert [pad for _, pad in layer.events] == [15, 8], layer.events
-            crash = kit_note(h, KIT_LAYER, 15)
+            crash = kit_sound(h, KIT_LAYER, 15)
             before = presses(h, crash)
             seen = set()
             for _ in range(120):                          # ~2 passes
@@ -127,9 +125,9 @@ class LooperSixteenPadTest(unittest.TestCase):
             assert presses(h, crash) >= before + 2
             assert palette.PLAYBACK in seen, "playback lights pad 16"
 
+            yield from h.open_menu_at("MIRR")
             yield from h.tap(BTN_MENU)
-            yield from h.taps(BTN_INC, 4)
-            assert h.text == "MIRR"
+            assert h.text == "SURE"
             yield from h.tap(BTN_MENU)
             assert h.text == "DONE"
             assert sorted(pad for _, pad in layer.events) == [8, 8, 15, 15], layer.events
@@ -143,7 +141,7 @@ class LooperSixteenPadTest(unittest.TestCase):
             yield from h.tap(BTN_RECORD)
             h.pad_down(3)                                 # top right: 3 octaves up
             yield 0.05
-            assert abs(voice["note"].frequency - 440.0) < 1e-6
+            assert abs(fakes.live_pair(voice)["note"].frequency - 440.0) < 1e-6
             h.pad_up(3)
             yield 0.3
             yield from h.tap(BTN_RECORD)
@@ -172,12 +170,12 @@ class SequencerSixteenStepTest(unittest.TestCase):
         def scenario(h):
             yield from switch_mode(h)
             yield from h.pad_tap(15)
-            kick = h.synth._sequencer_kit[0]["note"]
+            kick = h.synth._sequencer_kit[0]
             fired = []
             h.synth._synth.press_log.clear()
             yield from h.tap(BTN_PLAY_STOP)
             for _ in range(250):                          # 120 BPM: a bar is 2 s
-                if h.synth._synth.press_log.count(kick) > len(fired):
+                if fakes.kit_presses(h.synth._synth, kick) > len(fired):
                     fired.append(h.seq.current_step)
                 yield 0.01
             assert fired == [15], fired
@@ -219,27 +217,25 @@ class GrooveVersionTest(unittest.TestCase):
         def scenario(h):
             yield from load_slot(h, 0)
             kit, bass = h.looper._layers[0], h.looper._layers[1]
-            assert kit.events == [(0.0, 3)], kit.events            # kit: unchanged
-            assert bass.events == [(0.0, 12), (0.1, 11)], bass.events
-            assert bass.releases == [(0.05, 12)], bass.releases
-            voice = h.synth._channels[1]["data"]
-            assert abs(voice["scale"][12] - 55.0) < 1e-6           # old pad 1's note
+            assert fakes.notes(kit.events) == [(0.0, 3)], kit.events            # kit: unchanged
+            assert fakes.notes(bass.events) == [(0.0, 12), (0.1, 11)], bass.events
+            assert fakes.notes(bass.releases) == [(0.05, 12)], bass.releases
+            assert abs(h.synth.pad_frequency(1, 12) - 55.0) < 1e-6  # old pad 1's note
         h.run(scenario)
 
-    def test_saves_v2_and_reloads_unchanged(self):
+    def test_saves_current_version_and_reloads_unchanged(self):
         h = Harness()
         self.write_v1(h, 0)
 
         def scenario(h):
             yield from load_slot(h, 0)
-            yield 0.7
-            yield from h.tap(BTN_RECORD)                  # close the menu
+            yield 1.0                                     # the menu closed itself
             groove.save(1, h.menu._capture_groove())
             with open(f"{h.groove_dir}/slot2.json") as f:
-                assert json.load(f)["v"] == groove.VERSION == 2
+                assert json.load(f)["v"] == groove.VERSION == 4
             yield from load_slot(h, 1)
             bass = h.looper._layers[1]
-            assert bass.events == [(0.0, 12), (0.1, 11)], bass.events
+            assert fakes.notes(bass.events) == [(0.0, 12), (0.1, 11)], bass.events
         h.run(scenario)
 
 

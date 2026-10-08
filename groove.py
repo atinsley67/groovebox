@@ -13,8 +13,11 @@ Writing needs boot.py's storage.remount(); without it every save fails
 with a read-only error, which error_label() turns into "RO  ".
 
 Versions ("v" in the file): 1 = the 8-pad layout, where a melodic layer's
-pad n was note n; 2 = the 16-pad grid, notes rising from the bottom left.
-load() hands back either -- code.py's apply_groove converts a v1.
+pad n was note n; 2 = the 16-pad grid, notes rising from the bottom left;
+3 = drum DEC works and the hats, clap, shaker, ride and crash were rebuilt;
+4 = the melodic key and scale (in "sounds"). load() hands back any of them
+-- code.py's apply_groove converts a v1's notes, and a v1/v2's kit sounds;
+anything before v4 loads in A minor pentatonic, what it was made in.
 """
 
 import json
@@ -23,8 +26,8 @@ import os
 # The menu's slot labels ("S03*") have room for two digits, so at most 99.
 NUM_SLOTS = 16
 
-VERSION  = 2
-_READS   = (1, 2)   # versions load() accepts
+VERSION  = 4
+_READS   = (1, 2, 3, 4)   # versions load() accepts
 _DIR     = "/grooves"
 
 # OSError codes CircuitPython raises for these (its errno module doesn't
