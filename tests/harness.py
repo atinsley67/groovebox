@@ -105,6 +105,16 @@ class Harness:
         self.up(button)
         yield 0.03
 
+    def open_menu_at(self, label, limit=20):
+        """Open the menu and step the highlight to a root item by its
+        label -- from wherever it opens (it remembers the last item)."""
+        yield from self.tap(config.BTN_MENU)
+        for _ in range(limit):
+            if self.text == label:
+                return
+            yield from self.tap(config.BTN_INC)
+        raise AssertionError(f"no {label!r} in the menu's root list")
+
     def pad_tap(self, pad, hold=0.03, after=0.03):
         self.pad_down(pad)
         yield hold

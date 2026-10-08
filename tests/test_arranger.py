@@ -228,8 +228,8 @@ class AutoMainLoopTest(unittest.TestCase):
             assert set(changes) == {0}, changes
             assert words & set(arranger._WORDS + arranger._BREAKDOWN_WORDS +
                                arranger._DROP_WORDS), words
-            yield from h.tap(BTN_MENU)
-            yield from h.tap(BTN_DEC)
+            yield from h.tap(BTN_MENU)                        # reopens on AUT
+            assert h.text == "AUT*"
             yield from h.tap(BTN_MENU)                        # off
             assert h.text == "AUT "
         run(scenario)

@@ -1,8 +1,9 @@
 """
 End-to-end scenarios through the real code.py main loop (see harness.py):
-the list menu, pads staying live under it, RECORD as its back key, MUTE /
-CLEAR inert in it, the BPM item and tempo lock, UP/DOWN channel volume, and
-grooves.
+the list menu (reopening on the last item; SURE before EXT / MIRR), pads
+staying live under it, RECORD as its back key, MUTE working and CLEAR
+flashing MENU in it, the BPM item and tempo lock, UP/DOWN channel volume,
+and grooves.
 """
 
 import json
@@ -15,16 +16,14 @@ from harness import Harness, run
 from config import (BTN_MENU, BTN_PLAY_STOP, BTN_INC, BTN_DEC, BTN_RECORD,
                     BTN_MUTE, BTN_MODE, BTN_VIEW, BTN_CLEAR, NUM_LOOP_LAYERS)
 
-ROOT_LABELS = ["SND ", "ASGN", "ARP ", "BPM ", "EXT ", "MIRR", "SAVE", "LOAD", "AUT "]
+ROOT_LABELS = ["SND ", "ASGN", "ARP ", "BPM ", "KEY ", "SCAL", "EXT ", "MIRR", "SAVE",
+               "LOAD", "AUT "]
 MSG = 0.7   # just past the menu's _MSG_DURATION
 
 
 def open_menu_at(h, label):
     """Open the menu and move the highlight to a root item."""
-    yield from h.tap(BTN_MENU)
-    for _ in range(ROOT_LABELS.index(label)):
-        yield from h.tap(BTN_INC)
-    assert h.text == label, h.text
+    yield from h.open_menu_at(label)
 
 
 def switch_mode(h):
@@ -90,6 +89,53 @@ class MenuNavigationTest(unittest.TestCase):
             yield from h.tap(BTN_PLAY_STOP)
             assert h.seq.playing
             assert h.text == "SND "
+        run(scenario)
+
+    def test_reopens_on_the_last_item(self):
+        def scenario(h):
+            yield from open_menu_at(h, "SCAL")
+            yield from h.tap(BTN_RECORD)             # close
+            assert h.key_color(BTN_MENU) == palette.OFF
+            yield from h.tap(BTN_MENU)
+            assert h.text == "SCAL", h.text
+        run(scenario)
+
+    def test_mirror_asks_sure(self):
+        def scenario(h):
+            yield from record_freeform_loop(h)
+            layer = h.looper._layers[0]
+            yield from h.pad_tap(5)                  # a preview: not recorded
+            before = list(layer.events)
+            yield from open_menu_at(h, "MIRR")
+            yield from h.tap(BTN_MENU)
+            assert h.text == "SURE"
+            yield from h.tap(BTN_RECORD)             # cancels, menu stays open
+            assert h.text == "MIRR", h.text
+            assert list(layer.events) == before
+            yield from h.tap(BTN_MENU)
+            assert h.text == "SURE"
+            yield from h.tap(BTN_INC)                # moving on cancels too
+            assert h.text == "SAVE", h.text
+        run(scenario)
+
+    def test_extend_asks_sure_then_runs(self):
+        def scenario(h):
+            yield from record_freeform_loop(h)
+            master = h.looper._master_dur
+            yield from open_menu_at(h, "EXT ")
+            yield from h.tap(BTN_MENU)
+            assert h.text == "SURE"
+            assert h.looper._master_dur == master
+            yield from h.tap(BTN_MENU)
+            assert h.text == "DONE"
+            assert h.looper._master_dur == 2 * master
+        run(scenario)
+
+    def test_extend_with_no_loop_is_na_straight_away(self):
+        def scenario(h):
+            yield from open_menu_at(h, "EXT ")
+            yield from h.tap(BTN_MENU)
+            assert h.text == "N/A ", h.text
         run(scenario)
 
     def test_loop_only_items_in_seq(self):
@@ -174,25 +220,29 @@ class InertInMenuTest(unittest.TestCase):
             assert not h.looper._synced
         run(scenario)
 
-    def test_mute_does_nothing(self):
+    def test_mute_works_in_the_menu(self):
         def scenario(h):
             yield from record_freeform_loop(h)
             layer = h.looper._layers[0]
             assert layer.state == "PLY "
             yield from h.tap(BTN_MENU)
             yield from h.tap(BTN_MUTE)
-            assert layer.state == "PLY "
-            yield from h.tap(BTN_RECORD)
-            yield from h.tap(BTN_MUTE)
             assert layer.state == "MUTE"
+            assert h.text == "SND "                   # the menu stays open
+            assert h.key_color(BTN_MUTE) == palette.MUTED
+            yield from h.tap(BTN_MUTE)
+            assert layer.state == "PLY "
         run(scenario)
 
-    def test_clear_does_nothing(self):
+    def test_clear_flashes_menu(self):
         def scenario(h):
             yield from record_freeform_loop(h)
             yield from h.tap(BTN_MENU)
             yield from h.tap(BTN_CLEAR)
-            assert h.text == "SND "
+            assert h.text == "MENU", h.text           # close the menu to clear
+            assert h.key_color(BTN_CLEAR) == palette.OFF   # not armed
+            yield 1.0
+            assert h.text == "SND ", h.text
             yield from h.tap(BTN_MENU)                # select SND, not a confirm
             assert h.looper._layers[0].state == "PLY "
         run(scenario)
@@ -513,14 +563,15 @@ class GrooveTest(unittest.TestCase):
             yield from h.taps(BTN_INC, 2)
             assert h.text == "S03 "
             yield from h.tap(BTN_MENU)
+            yield 0.1                                     # the fade before the file work
             assert h.text == "DONE"
-            yield MSG
-            assert h.text == "SAVE"
-            yield from h.tap(BTN_INC)
+            assert h.key_color(BTN_MENU) == palette.OFF   # done: the menu closed
+            yield 1.0                                     # past the DONE flash
+            yield from open_menu_at(h, "LOAD")
             yield from h.tap(BTN_MENU)
             assert h.text == "L03*"
             yield from h.tap(BTN_RECORD)
-            yield from h.tap(BTN_DEC)
+            yield from h.tap(BTN_DEC)                     # SAVE
             yield from h.tap(BTN_MENU)
             assert h.text == "S03*"
             yield from h.tap(BTN_RECORD)
@@ -531,6 +582,7 @@ class GrooveTest(unittest.TestCase):
             yield from h.tap(BTN_MENU)
             assert h.text == "L03*"
             yield from h.tap(BTN_MENU)
+            yield 0.1                                     # the fade before the file work
             assert h.text == "DONE"
             assert h.synth.channel_volume(0) == 80
             assert h.synth.track_volume(0) == 90
@@ -553,6 +605,7 @@ class GrooveTest(unittest.TestCase):
             yield from h.tap(BTN_INC)
             assert h.text == "L02*"
             yield from h.tap(BTN_MENU)
+            yield 0.1                                     # the fade before the file work
             assert h.text == "DONE"
             assert h.synth.channel_volume(0) == 100
             assert h.bpm == 100

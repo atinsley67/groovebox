@@ -75,14 +75,23 @@ class KeyboardViewTest(unittest.TestCase):
             yield 0.02
         run(scenario)
 
-    def test_idle_pads_are_off(self):
+    def test_idle_pads_are_off_but_melodic_roots(self):
         def scenario(h):
             yield 0.05
-            assert {h.pad_color(pad) for pad in range(16)} == {palette.OFF}
+            assert {h.pad_color(pad) for pad in range(16)} == {palette.OFF}   # KIT
             yield from h.tap(BTN_VIEW)
             yield from h.pad_tap(1)                       # BASS: melodic
             yield 0.05
-            assert {h.pad_color(pad) for pad in range(16)} == {palette.OFF}
+            roots = {pad for pad in range(16) if h.pad_color(pad) == palette.ROOT_NOTE}
+            assert roots == {12, 9, 6, 3}, roots          # pentatonic: a diagonal
+            assert {h.pad_color(pad) for pad in range(16)} == {palette.OFF,
+                                                               palette.ROOT_NOTE}
+            h.pad_down(12)
+            yield 0.02
+            assert h.pad_color(12) == palette.LIVE        # a press beats the guide
+            h.pad_up(12)
+            yield 0.02
+            assert h.pad_color(12) == palette.ROOT_NOTE
         run(scenario)
 
 
@@ -198,9 +207,12 @@ class FunctionKeyLightsTest(unittest.TestCase):
                 assert h.key_color(button) == palette.PRESSED, button
                 h.up(button)
                 yield 0.02
-                assert h.key_color(button) == palette.OFF, button
-            # That MENU opened the menu, and VIEW the channel view: close both.
+                # That MENU opened the menu: it stays dimly lit while open.
+                after = palette.MENU_OPEN if button == BTN_MENU else palette.OFF
+                assert h.key_color(button) == after, button
+            # Close the menu, and the channel view VIEW opened.
             yield from h.tap(BTN_RECORD)
+            assert h.key_color(BTN_MENU) == palette.OFF
             yield from h.tap(BTN_VIEW)
             # The rest keep their own meaning while pressed.
             h.down(BTN_CLEAR)

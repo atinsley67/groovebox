@@ -10,7 +10,7 @@ import config
 import harness
 import palette
 import timing_probe
-from config import BTN_MENU
+from config import BTN_MENU, BTN_KEY_MODE
 from timing_probe import TimingProbe, census
 
 MS = 1000000
@@ -264,6 +264,25 @@ class MainLoopWithProbeTest(unittest.TestCase):
         stages = [line.split()[1] for line in out.getvalue().splitlines()
                   if line.startswith("HEAP")]
         self.assertEqual(stages, ["boot", "sound", "imports", "hardware", "voices", "ready"])
+
+    def test_the_arp_plays_through_the_probe(self):
+        """play_arp passes looper.handle_event exact=True by keyword: the
+        probe's wrapper has to take it (it crashed the device once)."""
+        saved = config.TIMING_PROBE
+        config.TIMING_PROBE = True
+        try:
+            def scenario(h):
+                yield from h.tap(BTN_KEY_MODE)          # the layer's arp on
+                h.pad_down(12)
+                h.pad_down(13)
+                yield 0.6                               # several arp notes, each
+                h.pad_up(12)                            # through play_arp
+                h.pad_up(13)
+                yield 0.05
+            with contextlib.redirect_stdout(io.StringIO()):
+                harness.run(scenario)
+        finally:
+            config.TIMING_PROBE = saved
 
 
 if __name__ == "__main__":

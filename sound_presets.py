@@ -29,11 +29,12 @@ TR-808's inharmonic cymbal frequencies, baked into the same long table so
 one Note carries both -- TUNE then shifts the metal's pitch.
 
 Melodic voices (instrument ids 1-15, MELODIC_VOICE_SPECS) -- one voice per
-channel. Each voice's 16 pads play three octaves of a minor pentatonic run
-in equal temperament, lowest at the bottom left (keymap.NOTE_OF_PAD); all
-voices share the same tonic and differ only by octave, so pads select a
-note (never a different key) and any voices played together stay in tune
-with each other.
+channel. Each voice's 16 pads play a run of the global key and scale
+(scales.py) in equal temperament, lowest at the bottom left
+(keymap.NOTE_OF_PAD); all voices share the same tonic and differ only by
+octave, so pads select a note (never a different key) and any voices
+played together stay in tune with each other. The engine owns the pitches
+(SynthEngine's shared pad table); a voice holds only its octave.
 
 instantiate_instrument(id) is the one factory the engine uses to hand a
 channel a brand-new instance. Waveform tables are built once at import and
@@ -46,7 +47,7 @@ import os
 import synthio
 
 import config
-import keymap
+import scales
 import synth_params
 
 _W = 256  # waveform table length
@@ -599,26 +600,8 @@ def _copy_lfo(lfo):
 
 # ── Melodic voices ────────────────────────────────────────────────────────────
 
-# Minor pentatonic, in standard 12-tone equal temperament (semitones from
-# root): 5 notes/octave, so 16 pads run three octaves and land on the root
-# again. No half-step-apart degrees anywhere in it, which matters more
-# here than in a fixed chord progression -- different voices are layered
-# live/independently, so whatever pads happen to land together need to stay
-# consonant on their own, not just when following a written chart.
-_PENTATONIC_SEMITONES = (0, 3, 5, 7, 10,
-                         12, 15, 17, 19, 22,
-                         24, 27, 29, 31, 34,
-                         36)
-
-def _pad_scale(root_freq):
-    """One frequency per pad: root_freq's minor pentatonic run, laid out by
-    keymap.NOTE_OF_PAD (the root at the bottom left)."""
-    return [root_freq * 2 ** (_PENTATONIC_SEMITONES[note] / 12)
-            for note in keymap.NOTE_OF_PAD]
-
-
-# Every voice is an octave transposition of the same tonic (_ROOT_HZ)
-# rather than an independently-chosen root -- so pad N is always the
+# Every voice is an octave transposition of the same tonic (scales.py's
+# key) rather than an independently-chosen root -- so pad N is always the
 # same pitch class on every voice, and any two voices played together
 # stay consonant no matter which pads are pressed. (Previously each
 # voice built its own major scale from its own root, so e.g. BASS was
@@ -626,11 +609,11 @@ def _pad_scale(root_freq):
 # CHRD is the one exception: it plays a parallel minor-7th chord on
 # whichever note, so some chord tones fall outside the scale -- the genre's
 # own idiom.
-_ROOT_HZ = 55.0  # A1
 
 # name,   wave_idx,  octave  attack  decay  sustain  release  hold_ms
 # wave_idx: an index into WAVEFORM_TABLES (synth_params.WAVEFORM_NAMES).
-# octave: relative to _ROOT_HZ, e.g. -1 = an octave below, 2 = two above.
+# octave: relative to the tonic at A1 (scales.A1_HZ in the default key),
+# e.g. -1 = an octave below, 2 = two above.
 # Voices are aimed at house / tech-house / DnB / jungle grooves rather
 # than generic synth roles. The first seven: two bass registers (a rolling
 # BASS and a growling DnB REES), a squelchy ACID line, a house STAB, a
@@ -704,7 +687,8 @@ def build_melodic_voice_instance(spec):
       'lfo'          - a persistent synthio.LFO reused for vibrato/tremolo/
                        filter-wobble, whichever 'lfo_dest' selects
       'freq'         - the pitch last played (None = none yet), for glide
-      'scale'        - the frequency each pad plays (indexed by pad)
+      'mult'         - the voice's octave as a frequency ratio: a pad plays
+                       the engine's pad pitch (key/scale, octave 0) times this
       'hold_ms'      - like the kit's, ms to hold before auto-release
                        (a soft ceiling on live-held notes -- see synth_engine;
                        the sustained voices ship with several seconds of
@@ -718,8 +702,8 @@ def build_melodic_voice_instance(spec):
     a voice can ship with e.g. LFO routing already engaged.
     """
     name, wave_idx, octave, atk, dec, sus, rel, hold_ms = spec
-    root   = _ROOT_HZ * 2 ** octave
-    scale  = _pad_scale(root)
+    mult   = 2 ** octave
+    root   = scales.A1_HZ * mult
     params = synth_params.default_params(wave_idx, atk, dec, sus, rel)
     params.update(MELODIC_VOICE_OVERRIDES.get(name, {}))
 
@@ -739,7 +723,7 @@ def build_melodic_voice_instance(spec):
                   _voice_pair(root, waveform, envelope, filt)),
         "live": 1, "envelope": envelope, "lfo": synthio.LFO(),
         "freq": None,
-        "scale": scale, "hold_ms": hold_ms, "name": name,
+        "mult": mult, "hold_ms": hold_ms, "name": name,
         "params": dict(params), "defaults": dict(params),
         "sounding_pad": None,
     }

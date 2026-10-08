@@ -1,9 +1,11 @@
+import array
 import audiobusio
 import math
 import synthio
 
 import clock
 import config
+import scales
 from sound_presets import (build_kit_instance, instantiate_instrument,
                            upgrade_v2_kit_params, voice_notes,
                            INSTRUMENT_NAMES, WAVEFORM_DIVISORS, WAVEFORM_TABLES)
@@ -85,6 +87,16 @@ class SynthEngine:
         self._track_volumes = [_FULL_VOLUME] * config.NUM_TRACKS
         self._layer_volumes = [_FULL_VOLUME] * config.NUM_LOOP_LAYERS
 
+        # The melodic key and scale (scales.py), shared by every melodic
+        # layer: each pad's pitch at octave 0, which a voice multiplies by
+        # its own octave ('mult'). One flat array, rewritten in place on a
+        # change -- nothing for the garbage collector to walk.
+        self._key       = scales.DEFAULT_KEY
+        self._scale     = scales.DEFAULT_SCALE
+        self._pad_pitch = array.array("f", [0.0] * config.NUM_PADS)
+        self._root_mask = 0
+        self.set_tuning(self._key, self._scale)
+
         # One independent instrument instance per loop layer (see
         # sound_presets.instantiate_instrument). Default mapping is layer i
         # = instrument id i: layer 0 = KIT, layers 1-7 = BASS..PAD.
@@ -139,7 +151,7 @@ class SynthEngine:
             return
         voice  = channel["data"]
         params = voice["params"]
-        freq   = voice["scale"][pad_index]
+        freq   = self._pad_pitch[pad_index] * voice["mult"]
         # Legato -- the last note's pad still held -- carries that note on
         # (and can glide). A separate note starts fresh on the other pair:
         # synthio would otherwise re-enter the attack from wherever the
@@ -238,6 +250,78 @@ class SynthEngine:
         pair = voice["pairs"][voice["live"]]
         self._release([pair["note"], pair["detune_note"]])
 
+    def pad_frequency(self, layer_idx, pad_index):
+        """The pitch a melodic layer's pad plays in the current key/scale."""
+        return self._pad_pitch[pad_index] * self._channels[layer_idx]["data"]["mult"]
+
+    # ── Key and scale (the menu's KEY / SCAL) ─────────────────────────────────
+
+    @property
+    def key(self):
+        return self._key
+
+    @property
+    def scale(self):
+        return self._scale
+
+    @property
+    def root_mask(self):
+        """Bitmask of the pads playing the tonic (bit n = pad n)."""
+        return self._root_mask
+
+    def set_tuning(self, key, scale):
+        """Change the melodic key and/or scale (scales.py). Takes effect
+        from each voice's next note; one already sounding rings out at its
+        old pitch."""
+        self._key, self._scale = key, scale
+        scales.fill_pitches(self._pad_pitch, key, scale)
+        self._root_mask = scales.root_mask(scale)
+
+    def release_layer_notes(self, layer_idx, keep_mask=0):
+        """Release whatever a loop layer has sounding that waits for a
+        release -- its melodic voice's note, or a sustained kit pad -- with
+        the sound's own release, as if its pad were let go: on pause or
+        mute, where the recorded note-off would otherwise never come and
+        the note would ring on to its hold_ms ceiling. Percussive kit
+        sounds are left to ring out. Pads in keep_mask (bit n = pad n: ones
+        the player is holding) are left alone -- their PAD_UP releases
+        them."""
+        channel = self._channels[layer_idx]
+        if channel["type"] == "melodic":
+            pad = channel["data"]["sounding_pad"]
+            if pad is not None and not keep_mask & (1 << pad):
+                self.release_layer_pad(layer_idx, pad)
+            return
+        for pad in range(len(channel["data"])):
+            sound = channel["data"][pad]
+            if sound["hold_ms"] > 0 and not keep_mask & (1 << pad):
+                self._release([sound["notes"][sound["live"]]])
+
+    def fade_all(self):
+        """Fade out everything sounding, quickly: the menu's SAVE / LOAD,
+        just before file work that stalls the main loop -- and any audio
+        still playing through the stall could click. Every note gets a
+        short fade-out envelope and is released, and pending auto-releases
+        are dropped. Each sound gets its own envelope back on its next note
+        (_next_pair, _trigger_drum)."""
+        for channel in self._channels:
+            if channel["type"] == "melodic":
+                voice = channel["data"]
+                notes = voice_notes(voice)
+                for note in notes:
+                    note.envelope = _VOICE_FADE_ENVELOPE
+                voice["sounding_pad"] = None
+                self._synth.release(notes)
+            else:
+                self._choke_kit(channel["data"])
+        self._choke_kit(self._sequencer_kit)
+        self._pending_releases.clear()
+
+    def _choke_kit(self, kit):
+        for sound in kit:
+            self._choke(sound)
+            self._synth.release(sound["notes"])
+
     def channel_instrument_id(self, layer_idx):
         return self._channels[layer_idx]["id"]
 
@@ -326,7 +410,8 @@ class SynthEngine:
     def snapshot_sounds(self):
         """Every sound edit as plain data: the sequencer kit's sounds, each
         loop layer's instrument id plus its params (one dict for a melodic
-        voice, one per pad for a kit), and every track and layer volume."""
+        voice, one per pad for a kit), every track and layer volume, and
+        the melodic key and scale."""
         layers = []
         for channel in self._channels:
             if channel["type"] == "melodic":
@@ -337,7 +422,8 @@ class SynthEngine:
         return {"kit": [dict(sound["params"]) for sound in self._sequencer_kit],
                 "layers": layers,
                 "track_vol": list(self._track_volumes),
-                "layer_vol": list(self._layer_volumes)}
+                "layer_vol": list(self._layer_volumes),
+                "key": self._key, "scale": self._scale}
 
     def restore_sounds(self, data, legacy_kit=False):
         """Put back a snapshot_sounds(). Every layer gets a fresh instance of
@@ -345,7 +431,9 @@ class SynthEngine:
         params on top -- see _merged_params. Volumes go back first, so every
         sound is levelled as it's rebuilt. legacy_kit: the data is from a
         groove older than v3, whose kit params are upgraded first
-        (sound_presets.upgrade_v2_kit_params)."""
+        (sound_presets.upgrade_v2_kit_params). A groove from before key and
+        scale existed (or with a bad one) loads in the default, A minor
+        pentatonic: what it was made in."""
         def kit_saved(pad, saved):
             if legacy_kit and isinstance(saved, dict):
                 return upgrade_v2_kit_params(pad, saved)
@@ -355,6 +443,10 @@ class SynthEngine:
                                                 len(self._track_volumes))
         self._layer_volumes = _restored_volumes(data.get("layer_vol"),
                                                 len(self._layer_volumes))
+
+        key, scale = data.get("key"), data.get("scale")
+        self.set_tuning(key if scales.valid_key(key) else scales.DEFAULT_KEY,
+                        scale if scales.valid_scale(scale) else scales.DEFAULT_SCALE)
 
         for pad, (sound, saved) in enumerate(zip(self._sequencer_kit,
                                                  data.get("kit", []))):

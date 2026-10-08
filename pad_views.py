@@ -23,19 +23,23 @@ class KeyboardView:
       the arp's note (arp on)       white: a playhead over your chord
       playback hitting the pad      blue, briefly
       a live press beats playback, so you can see your fingers in an overdub
+      idle, a melodic layer's root  dim purple: the key's tonic, a guide
       idle                          off
     With the layer's arp on, "your press" is the fingers (arp.held_mask),
     not the arp's notes (which the looper counts as held).
     """
 
-    def __init__(self, looper, arp):
+    def __init__(self, looper, arp, synth):
         self._looper = looper
         self._arp    = arp
+        self._synth  = synth
         self._frame  = [palette.OFF] * NUM_PADS
 
     def frame(self, now):
         looper = self._looper
         arp    = self._arp
+        synth  = self._synth
+        roots  = synth.root_mask if synth.layer_is_melodic(looper.active_idx) else 0
         if arp.is_on(looper.active_idx):
             held = arp.held_mask
             note = arp.note_pad
@@ -53,6 +57,8 @@ class KeyboardView:
                 frame[pad] = press
             elif flash & bit:
                 frame[pad] = palette.PLAYBACK
+            elif roots & bit:
+                frame[pad] = palette.ROOT_NOTE
             else:
                 frame[pad] = palette.OFF
         return frame

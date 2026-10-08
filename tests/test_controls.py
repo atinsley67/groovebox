@@ -303,6 +303,48 @@ class ChannelViewTest(unittest.TestCase):
             assert h.looper._layers[0].state == "PLY "
         run(scenario)
 
+    def test_record_from_the_view_goes_back_to_the_keyboard(self):
+        def scenario(h):
+            yield from h.tap(BTN_VIEW)
+            yield from h.tap(BTN_RECORD)                  # arm a take
+            assert h.looper._rec_state == "ARM "
+            yield from h.pad_tap(3)                       # a note, not a channel tap
+            assert h.looper._rec_state == "REC "
+            assert [pad for _, pad in h.looper._layers[0].events] == [3]
+        run(scenario)
+
+    def test_stopping_a_take_stays_in_the_view(self):
+        def scenario(h):
+            yield from h.tap(BTN_RECORD)
+            yield from h.pad_tap(0)
+            yield 0.4
+            yield from h.tap(BTN_VIEW)                    # watching, mid-take
+            yield from h.tap(BTN_RECORD)                  # commit
+            assert h.looper._layers[0].state == "PLY "
+            yield from h.pad_tap(4)                       # still the view: selects layer 5
+            assert h.looper.active_idx == 4
+        run(scenario)
+
+    def test_overdub_from_the_view_goes_back_to_the_keyboard(self):
+        def scenario(h):
+            yield from record_freeform_loop(h)
+            yield from h.tap(BTN_VIEW)
+            yield from h.tap(BTN_RECORD)                  # overdub layer 1
+            assert h.looper.record_status == "rec"
+            yield from h.pad_tap(6)                       # a note on layer 1
+            assert h.looper.active_idx == 0
+            assert 6 in [pad for _, pad in h.looper._layers[0].events]
+        run(scenario)
+
+    def test_record_in_seq_leaves_the_view_alone(self):
+        def scenario(h):
+            yield from h.tap(BTN_MODE)                    # SEQ: RECORD does nothing
+            yield from h.tap(BTN_VIEW)
+            yield from h.tap(BTN_RECORD)
+            yield from h.pad_tap(TRACK_PAD + 2)           # still the view: track 3
+            assert h.seq.selected_track == 2
+        run(scenario)
+
 
 if __name__ == "__main__":
     unittest.main()

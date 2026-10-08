@@ -30,6 +30,7 @@ RECORDING   = RED                   # your own press while recording / overdubbi
 HAS_CONTENT = scaled(GREEN, DIM)     # a channel with something in it; an on-step
 MUTED       = scaled(YELLOW, DIM)    # grey: content, but silent
 PLAYHEAD    = scaled(WHITE, 0.5)    # the step being played (off-step)
+ROOT_NOTE   = scaled(PURPLE, DIM)     # an idle melodic pad playing the key's tonic
 
 # ── Function keys ─────────────────────────────────────────────────────────────
 PLAYING     = scaled(GREEN, DIM)    # PLAY/STOP: transport running
@@ -41,3 +42,4 @@ KEY_SELECT  = WHITE                 # KEY MODE: pad taps select
 KEY_MUTE    = MUTED                 # KEY MODE: pad taps mute
 KEY_ARP     = YELLOW                # KEY MODE: the active layer's arp is on
 PRESSED     = WHITE                 # MENU / UP / DOWN / VIEW while held; io_test
+MENU_OPEN   = scaled(WHITE, DIM)    # MENU: the menu is open

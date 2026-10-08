@@ -28,7 +28,8 @@ The pads show the current view (see *LOOP mode*, *SEQ mode* and *VIEW — the ch
 | LOOP/SEQ | Cyan in LOOP, purple in SEQ |
 | KEY MODE | In the channel view: white for select, grey for mute. In LOOP's own view: yellow while the layer's arpeggiator is on |
 | CLEAR | Blinking orange while a clear waits for you to confirm it |
-| MENU, UP, DOWN, VIEW | White while held |
+| MENU | Dim white while the menu is open; white while held |
+| UP, DOWN, VIEW | White while held |
 
 The layout can be changed in `config.py` (`FUNC_LAYOUT`); see `HARDWARE.md`.
 
@@ -39,12 +40,12 @@ The layout can be changed in `config.py` (`FUNC_LAYOUT`); see `HARDWARE.md`.
 | LOOP/SEQ | Switch between LOOP and SEQ modes | Same; the menu follows |
 | PLAY/STOP | Play / pause (see below for what it controls) | Same |
 | MENU | Open the menu; confirm a CLEAR | Select |
-| RECORD | Record (see *LOOP mode*) | Back one level; at the top, close the menu |
+| RECORD | Record (see *LOOP mode*; from the channel view, starting a take takes you back to the keyboard) | Back one level; at the top, close the menu |
 | UP / DOWN | Volume of the active layer (LOOP) or selected track (SEQ), 5% a step | Move the highlight, or step a value |
 | VIEW | Switch the pads between the mode's own view and the channel view | Same |
 | KEY MODE | In the channel view: what a pad tap does (select / mute). In LOOP's own view: the active layer's arpeggiator on / off (see *Arpeggiator*) | Same |
-| MUTE | Mute / unmute the active layer or selected track | Nothing |
-| CLEAR | Clear the active layer or selected track, or everything (see below) | Nothing |
+| MUTE | Mute / unmute the active layer or selected track | Same |
+| CLEAR | Clear the active layer or selected track, or everything (see below) | Flashes `MENU`: close the menu to clear |
 
 **Volume:** every loop layer and every sequencer track has its own volume, 0–100% (it starts at 100%). The display shows the new level for a moment (`V 80`). A layer keeps its volume when you give it a different instrument, and grooves save every volume.
 
@@ -53,7 +54,7 @@ The layout can be changed in `config.py` (`FUNC_LAYOUT`); see `HARDWARE.md`.
 - **SEQ mode otherwise:** the sequencer only.
 - **LOOP mode otherwise:** the loop only.
 
-Resuming always restarts from the top, so synced parts come back in step. Clearing every loop layer while the sequencer runs keeps the session synced: PLAY/STOP still controls both, and the next take syncs to the sequencer again.
+Resuming always restarts from the top, so synced parts come back in step. Pausing lets go of any melodic note the loop was holding, so it fades with its own release instead of ringing on; drums ring out as normal. Clearing every loop layer while the sequencer runs keeps the session synced: PLAY/STOP still controls both, and the next take syncs to the sequencer again.
 
 The BPM is set in the menu (`BPM `). **It's locked** (the menu shows `LOCK`) while a synced session has any loop content (or a take is counting in or recording), and while a free-form loop has any layer playing (even when paused). **Switching to SEQ** is also blocked (`LOCK`) under that same free-form condition.
 
@@ -63,7 +64,7 @@ CLEAR never clears straight away:
 
 1. **CLEAR** picks the active layer (LOOP) or selected track (SEQ). The display shows `CLR3` (channel 3), and CLEAR blinks orange.
 2. **CLEAR again** switches to every layer, or every track (`CLRA`). Pressing it again goes back to the one channel.
-3. **MENU** confirms (`DONE`). Clearing a track also unmutes it.
+3. **MENU** confirms (`DONE`). Clearing a track also unmutes it. Clearing a layer lets go of any melodic note it was holding, so it fades with its own release.
 
 Any other function key cancels, and does nothing else (so PLAY/STOP won't also stop playback). Doing nothing for 3 seconds cancels too. The pads keep playing while CLEAR waits; tapping a pad in the channel view cancels it.
 
@@ -86,7 +87,7 @@ VIEW switches the pads between the mode's own view (playing notes in LOOP, steps
 | Bright blue flash | A note just played on it |
 | Red | Recording or overdubbing (blinking: armed or counting in) |
 
-In the channel view, the pads don't play anything. **KEY MODE** picks what a tap does; the view always opens in select, and the KEY MODE key shows which:
+In the channel view, the pads don't play anything. So in LOOP, pressing **RECORD** to start a take or an overdub takes you back to the keyboard first, ready to play; pressing it to stop or cancel one leaves you in the channel view. **KEY MODE** picks what a tap does; the view always opens in select, and the KEY MODE key shows which:
 - **Select (white):** the tap chooses that layer or track and takes you straight back to its own view, ready to play. Choosing a track from LOOP (or a layer from SEQ) switches modes too. If that's blocked, `LOCK` shows; choosing another layer while one is recording shows `BUSY`. Either way you stay in the channel view.
 - **Mute (grey):** the tap mutes or unmutes that channel, and you stay in the view, so you can mix a groove live.
 
@@ -101,11 +102,11 @@ MENU opens the menu. It works in either mode, and the loop or pattern keeps play
 | MENU | Select: enter the highlighted item, edit the value, or run the action |
 | RECORD | Back one level; at the top, close the menu |
 | UP / DOWN | Move the highlight, or step a value while editing (hold to repeat) |
-| PLAY/STOP, LOOP/SEQ, VIEW, KEY MODE | Unchanged; the menu follows a change of mode, layer or track |
+| PLAY/STOP, LOOP/SEQ, VIEW, KEY MODE, MUTE | Unchanged; the menu follows a change of mode, layer or track |
 | Pads | Unchanged: they keep playing the active mode (or the channel view), and their lights keep showing it |
-| MUTE, CLEAR | Do nothing while the menu is open |
+| CLEAR | Flashes `MENU`: close the menu to clear |
 
-Every part of the menu is a list. The display shows the highlighted item, and UP / DOWN wrap around from the last item to the first.
+Every part of the menu is a list. The display shows the highlighted item, and UP / DOWN wrap around from the last item to the first. The menu opens at the top level, on the item you used last (`SND ` the first time), so going back to the same setting is one press.
 
 ### Top of the menu
 
@@ -115,6 +116,8 @@ Every part of the menu is a list. The display shows the highlighted item, and UP
 | `ASGN` | Choose the layer's instrument | LOOP only |
 | `ARP ` | The layer's arpeggiator settings | LOOP only |
 | `BPM ` | Set the tempo | LOOP and SEQ |
+| `KEY ` | The key every melodic layer plays in | LOOP and SEQ |
+| `SCAL` | The scale every melodic layer plays | LOOP and SEQ |
 | `EXT ` | Double the loop length | LOOP only |
 | `MIRR` | Copy the layer's first half over its second | LOOP only |
 | `SAVE` | Save the groove | LOOP and SEQ |
@@ -141,6 +144,29 @@ The details:
 ### BPM — tempo
 
 MENU starts editing: UP / DOWN change the BPM by 1 (hold to repeat; range 40–300), shown as `b120`. MENU or RECORD finishes. If the tempo is locked (see *The function keys* above), `LOCK` shows first, then the current BPM, which can't be changed.
+
+### KEY / SCAL — key and scale
+
+Every melodic layer plays in one key and one scale, so layers always stay in tune with each other. The default is A minor pentatonic. MENU starts editing, UP / DOWN change it (it wraps around), and MENU or RECORD finishes.
+
+- **`KEY `**: the tonic, `C   ` to `B   ` (sharps, not flats). The whole run moves up to 6 semitones up or 5 down from A, never further, so the bass stays audible and the top notes stay clean.
+- **`SCAL`**, from the safest to the spiciest:
+
+| Item | Scale | Feel |
+|---|---|---|
+| `MINP` | Minor pentatonic | The default: everything you hit sounds good |
+| `MAJP` | Major pentatonic | Bright, uplifting |
+| `SUS ` | Suspended pentatonic | Open and floaty, deep house |
+| `DOR ` | Dorian | Jazzy minor, the classic deep house mode |
+| `AEOL` | Aeolian (natural minor) | Moody |
+| `PHRY` | Phrygian | Dark: techno, DnB |
+| `HMIN` | Harmonic minor | Rave drama |
+
+The three pentatonics never clash, whatever pads land together. The 7-note scales add colour, but two layers can rub on neighbouring notes. With 7 notes to the octave, the 16 pads cover a little over 2 octaves instead of 3.
+
+**It changes what's already recorded.** A recorded melodic note remembers its pad, not its pitch, so every loop plays in the new key or scale from its next note, with the same rhythm and shape. Notes already sounding finish at their old pitch. Drums aren't affected. `CHRD` always plays a minor-7th chord on each note, whatever the scale, so in the darker scales some of its chords sit outside it.
+
+Grooves save the key and scale. Grooves saved before they existed load in A minor pentatonic.
 
 ### SND — sound editing
 
@@ -225,7 +251,7 @@ MENU on an item edits it: UP / DOWN change the value, and MENU or RECORD goes ba
 - **EXT** doubles the loop length for every layer. The new second half is silent, ready to fill.
 - **MIRR** replaces the active layer's second half with a copy of its first half.
 
-Both show `DONE`, or `N/A ` if there's no loop yet or something is being recorded or overdubbed.
+Both ask first: MENU shows `SURE`, and MENU again does it (`DONE`). RECORD, UP or DOWN cancels. They show `N/A ` straight away if there's no loop yet or something is being recorded or overdubbed.
 
 ### SAVE / LOAD — grooves
 
@@ -236,6 +262,7 @@ A groove saves everything:
 - each layer's instrument
 - all sound edits
 - every layer and track volume
+- the key and scale
 
 It doesn't save a recording that's still in progress, or which layer or track was selected. Grooves saved before channel volumes existed load with every volume at 100%. Grooves saved before the 16-pad grid sound the same as before: their melodic notes move to the pads that play those notes now.
 
@@ -248,16 +275,14 @@ There are 16 slots. Pick one with UP / DOWN. A `*` means the slot holds a groove
 | `L03*` | LOAD slot 3's groove |
 | `L03 ` | LOAD, slot 3 is empty (MENU shows `N/A `) |
 
-MENU saves or loads, then shows `DONE` and returns to the top of the menu. If it fails:
+MENU saves or loads. When it works, the menu closes and `DONE` shows for a moment, so you're straight back to playing. If it fails, the menu stays on the slot list so you can try another slot, and the display shows why:
 - `RO  ` means the drive isn't writable (see *Storage* below).
 - `FULL` means the drive is full.
 - `ERR ` means the file couldn't be read.
 
-A failed save or load changes nothing.
+A failed save or load changes nothing in the groove (playback has still stopped).
 
-Loading replaces the whole session and stops playback. Press PLAY to hear it; a synced groove comes back in step with the sequencer.
-
-Saving while playing can cause a brief timing hiccup while the file is written.
+SAVE and LOAD both stop playback first and fade out anything still sounding, so the file work happens in silence. Loading replaces the whole session; press PLAY to hear it (or to carry on after a save). A synced groove comes back in step with the sequencer.
 
 **Storage:** grooves are files in `/grooves/` on the CIRCUITPY drive (`slot1.json` … `slot16.json`). So the groovebox can write them, the drive is read-only to your computer during normal use. To copy files over, press BOOTSEL during startup to boot into safe mode.
 
@@ -290,7 +315,7 @@ There are **8 layers**, all sharing one loop length. Choose one in the channel v
 
 (House kick, DnB kick, closed and open hi-hat, snare, clap, cowbell, woodblock; low, mid and high tom, rimshot, shaker, conga, ride, crash.)
 
-**A melodic layer:** three octaves of a minor pentatonic scale, lowest at the bottom left. Notes rise along each row, left to right, then continue on the row above, so pad 13 is the root and pad 4 is the root three octaves up. The roots fall on a diagonal: pads 13, 10, 7 and 4. Every voice uses the same key, so any layers played together stay in tune.
+**A melodic layer:** a run of the key and scale set in the menu (`KEY `, `SCAL`; A minor pentatonic to start), lowest at the bottom left. Notes rise along each row, left to right, then continue on the row above, so pad 13 is always the root. In a pentatonic scale the 16 pads cover three octaves and the roots fall on a diagonal: pads 13, 10, 7 and 4. In a 7-note scale they cover a little over two, with roots on pads 13, 12 and 3. Every voice uses the same key, so any layers played together stay in tune.
 
 ### What the pads show
 
@@ -300,6 +325,7 @@ There are **8 layers**, all sharing one loop length. Choose one in the channel v
 | Red | A pad you're holding while recording or overdubbing it |
 | White | The note the arpeggiator is playing |
 | Blue flash | The loop playing that pad |
+| Dim purple | On a melodic layer: an idle pad that plays the root, as a guide |
 | Off | Idle |
 
 Your own press wins over playback, so you can see your fingers during an overdub.
@@ -342,7 +368,7 @@ RECORD does nothing on a muted layer.
 
 | Key | Does |
 |---|---|
-| MUTE | Mute / unmute the active layer (it rejoins in time) |
+| MUTE | Mute / unmute the active layer (it rejoins in time). Muting lets go of a melodic note the layer was holding |
 | CLEAR | Clear the active layer; CLEAR twice: **all** layers (MENU confirms) |
 | PLAY/STOP | Pause / resume |
 | UP / DOWN | The active layer's volume |

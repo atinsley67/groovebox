@@ -24,11 +24,17 @@ class DisplayManager:
     def __init__(self, i2c):
         self._leds = pixels.PixelLeds()
 
-        # auto_write off: with it on, print() already sends the text and the
-        # explicit show() sent it a second time. _write_text() is the one
-        # place text goes out, and only when it changed.
+        # Built with auto_write on so the library's constructor sends its
+        # blank buffer before it switches the display on. The chip can keep
+        # its last text through a reset or a quick power cycle, and without
+        # that the old text (usually "LOOP") flashed up before the startup
+        # animation. Then auto_write off: with it on, print() already sends
+        # the text and the explicit show() sent it a second time.
+        # _write_text() is the one place text goes out, and only when it
+        # changed.
         self._seg = segments.Seg14x4(i2c, address=config.ALPHANUM_ADDR,
-                                     auto_write=False)
+                                     auto_write=True)
+        self._seg.auto_write = False
         self._seg.brightness = 0.5
         self._text      = None   # what the display shows now (None = unknown)
         self._text_held = False

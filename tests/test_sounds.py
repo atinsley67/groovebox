@@ -262,7 +262,7 @@ class MelodicVoiceTest(unittest.TestCase):
         voice = self.assign("CHRD")
         self.engine.trigger_layer_pad(1, 12)
         self.assertAlmostEqual(fakes.live_pair(voice)["note"].frequency * 10,
-                               voice["scale"][12])
+                               self.engine.pad_frequency(1, 12))
 
     def test_every_voice_sums_its_bend(self):
         for name in sound_presets.INSTRUMENT_NAMES[1:]:
@@ -299,7 +299,8 @@ class MelodicVoiceTest(unittest.TestCase):
         self.assertIs(pair["bend"].c, glide)
         self.assertEqual(pair["penv_lfo"].retriggers, 1)
         start = glide.scale + glide.offset                             # octaves from new to old
-        self.assertAlmostEqual(2 ** start * voice["scale"][13], voice["scale"][12])
+        self.assertAlmostEqual(2 ** start * self.engine.pad_frequency(1, 13),
+                               self.engine.pad_frequency(1, 12))
         self.assertAlmostEqual(glide.offset - glide.scale, 0.0)
 
     def test_glide_off_never_slides(self):
@@ -353,7 +354,7 @@ class MelodicRetriggerTest(unittest.TestCase):
         self.assertEqual(self.log, [a])                                # no jump back to full
         self.assertIn(a, self.engine._synth.pressed)
         self.assertIs(a.envelope, self.voice["envelope"])
-        self.assertAlmostEqual(a.frequency, self.voice["scale"][14])
+        self.assertAlmostEqual(a.frequency, self.engine.pad_frequency(1, 14))
         pair = fakes.live_pair(self.voice)
         self.assertEqual(pair["penv_lfo"].retriggers, 1)               # no re-punch
 

@@ -147,8 +147,9 @@ class TimingProbe:
         """Count what obj.<name>() allocates on sampled passes, under
         `label`, by replacing it with a wrapper. arity: how many arguments
         it takes (fixed-arity wrappers: *args would itself allocate). A
-        third argument is optional (looper.handle_event's exact), and so is
-        a lone one (disp.update's now)."""
+        third argument is optional and named `exact` (looper.handle_event's,
+        which code.py's play_arp passes by keyword), and a lone one is
+        optional too (disp.update's now)."""
         part = self._add_part(label)
         fn   = getattr(obj, name)
         if arity == 0:
@@ -176,11 +177,11 @@ class TimingProbe:
                 self._count(part, before)
                 return result
         else:
-            def tracked(a, b, c=False):
+            def tracked(a, b, exact=False):
                 if not self._sampling:
-                    return fn(a, b, c)
+                    return fn(a, b, exact)
                 before = self._mem_alloc()
-                result = fn(a, b, c)
+                result = fn(a, b, exact)
                 self._count(part, before)
                 return result
         setattr(obj, name, tracked)

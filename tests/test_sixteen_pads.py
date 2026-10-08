@@ -22,8 +22,6 @@ from synth_engine import SynthEngine
 
 KIT_LAYER  = 0
 BASS_LAYER = 1
-LOAD_ITEM  = 7   # LOAD's place in the menu's root list
-MIRR_ITEM  = 5
 
 
 def kit_sound(h, layer, pad):
@@ -39,12 +37,12 @@ def switch_mode(h):
 
 
 def load_slot(h, slot):
-    yield from h.tap(BTN_MENU)
-    yield from h.taps(BTN_INC, LOAD_ITEM)
+    yield from h.open_menu_at("LOAD")
     yield from h.tap(BTN_MENU)
     yield from h.taps(BTN_INC, slot)
     assert h.text == f"L{slot + 1:02d}*", h.text
     yield from h.tap(BTN_MENU)
+    yield 0.1                                     # the fade before the file work
     assert h.text == "DONE", h.text
 
 
@@ -96,7 +94,7 @@ class MelodicLayoutTest(unittest.TestCase):
     def test_three_octaves_of_pentatonic(self):
         engine = SynthEngine()
         voice = engine._channels[BASS_LAYER]["data"]    # root A1, 55 Hz
-        by_note = [voice["scale"][keymap.PAD_OF_NOTE[n]] for n in range(16)]
+        by_note = [engine.pad_frequency(BASS_LAYER, keymap.PAD_OF_NOTE[n]) for n in range(16)]
         self.assertAlmostEqual(by_note[0], 55.0)
         self.assertAlmostEqual(by_note[5], 110.0)
         self.assertAlmostEqual(by_note[15], 440.0)
@@ -127,9 +125,9 @@ class LooperSixteenPadTest(unittest.TestCase):
             assert presses(h, crash) >= before + 2
             assert palette.PLAYBACK in seen, "playback lights pad 16"
 
+            yield from h.open_menu_at("MIRR")
             yield from h.tap(BTN_MENU)
-            yield from h.taps(BTN_INC, MIRR_ITEM)
-            assert h.text == "MIRR"
+            assert h.text == "SURE"
             yield from h.tap(BTN_MENU)
             assert h.text == "DONE"
             assert sorted(pad for _, pad in layer.events) == [8, 8, 15, 15], layer.events
@@ -222,8 +220,7 @@ class GrooveVersionTest(unittest.TestCase):
             assert fakes.notes(kit.events) == [(0.0, 3)], kit.events            # kit: unchanged
             assert fakes.notes(bass.events) == [(0.0, 12), (0.1, 11)], bass.events
             assert fakes.notes(bass.releases) == [(0.05, 12)], bass.releases
-            voice = h.synth._channels[1]["data"]
-            assert abs(voice["scale"][12] - 55.0) < 1e-6           # old pad 1's note
+            assert abs(h.synth.pad_frequency(1, 12) - 55.0) < 1e-6  # old pad 1's note
         h.run(scenario)
 
     def test_saves_current_version_and_reloads_unchanged(self):
@@ -232,11 +229,10 @@ class GrooveVersionTest(unittest.TestCase):
 
         def scenario(h):
             yield from load_slot(h, 0)
-            yield 0.7
-            yield from h.tap(BTN_RECORD)                  # close the menu
+            yield 1.0                                     # the menu closed itself
             groove.save(1, h.menu._capture_groove())
             with open(f"{h.groove_dir}/slot2.json") as f:
-                assert json.load(f)["v"] == groove.VERSION == 3
+                assert json.load(f)["v"] == groove.VERSION == 4
             yield from load_slot(h, 1)
             bass = h.looper._layers[1]
             assert fakes.notes(bass.events) == [(0.0, 12), (0.1, 11)], bass.events

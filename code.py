@@ -20,7 +20,8 @@ thing, on press -- no long presses; only UP/DOWN repeat while held:
   KEY MODE   — what a pad press does: in the channel view, select <->
                mute; in LOOP's own view, play <-> arpeggiate (the active
                layer's arp)
-  MUTE       — the active mode's (mute the selected channel)
+  MUTE       — the active mode's (mute the selected channel), menu open or
+               not
   CLEAR      — arm clearing the selected channel; CLEAR again: every
                channel in the mode. MENU confirms; any other function key
                cancels and does nothing else; so does _CLEAR_TIMEOUT.
@@ -33,7 +34,9 @@ view: loop layers on pads 0-7, sequencer tracks on 8-15. In the channel
 view, KEY MODE select (always the mode on entering): a tap selects that
 channel -- switching LOOP/SEQ if it's on the other side -- and goes
 straight back to that mode's own view. KEY MODE mute: a tap mutes /
-unmutes that channel and stays. Its pads never reach the modes.
+unmutes that channel and stays. Its pads never reach the modes, so a
+RECORD that starts a take or overdub in LOOP goes back to the keyboard
+first.
 
 The arp (arp.py): with the active layer's arp on, LOOP's pad presses go
 to it instead of the looper, and what it plays goes on to the looper as
@@ -53,7 +56,8 @@ with each change.
 MENU overlay (menu.py): while open, MENU and UP/DOWN go to it and RECORD is
 its "back". The pads keep going to the active mode (or the channel view),
 which keeps the LEDs -- the menu holds only the text. LOOP/SEQ, PLAY/STOP,
-VIEW and KEY MODE work as usual; MUTE and CLEAR do nothing. Its BPM item
+VIEW, KEY MODE and MUTE work as usual; CLEAR flashes MENU (close the menu
+to clear). The MENU key stays dimly lit while it's open. Its BPM item
 calls back into set_bpm / tempo_locked, and SAVE / LOAD into
 capture_groove / apply_groove below, since BPM and sync mode live here.
 
@@ -139,7 +143,7 @@ def main():
     seq        = SequencerMode(synth, disp)
     looper     = LooperMode(synth, disp, seq)
     arp        = Arpeggiator(NUM_LOOP_LAYERS, step_duration(DEFAULT_BPM))
-    keyboard   = KeyboardView(looper, arp)
+    keyboard   = KeyboardView(looper, arp, synth)
     steps      = StepView(seq)
     channels   = ChannelView(looper, seq)
     arranger   = Arranger(looper, seq)
@@ -390,6 +394,22 @@ def main():
             menu.refresh_display()
 
     # ── Grooves: the menu's SAVE / LOAD (file I/O lives in groove.py) ─────────
+    def stop_playback(now):
+        """Before SAVE / LOAD (the menu calls it, then waits for the fade):
+        stop everything and fade out whatever is still sounding, so the
+        file work -- a stall of up to ~0.6 s -- happens in silence. PLAY
+        afterwards starts everything from the top, lockstepped."""
+        stop_arp(now)
+        seq.set_playing(False)
+        looper.set_playing(False, now)
+        synth.fade_all()
+
+    def finish_file(text):
+        """A SAVE / LOAD that worked: close the menu -- you're straight back
+        to playing -- and show the result over the mode for a moment."""
+        close_menu()
+        flash(text, clock.now(), _LOCK_FLASH_HOLD)
+
     def capture_groove():
         return {
             "bpm":    bpm,
@@ -405,9 +425,7 @@ def main():
         a synced groove's loop and sequencer come back lockstepped the same
         way they do on any resume."""
         nonlocal sync_mode
-        stop_arp(now)
-        seq.set_playing(False)
-        looper.set_playing(False, now)
+        stop_playback(now)   # already done by the menu; cheap to repeat
         # Before v3 a drum's DEC did nothing and six kit sounds were
         # different sounds -- see sound_presets.upgrade_v2_kit_params.
         synth.restore_sounds(data.get("sounds", {}),
@@ -439,7 +457,8 @@ def main():
     menu = MenuMode(synth, disp, looper, seq, lambda: active,
                     capture_groove=capture_groove, apply_groove=apply_groove,
                     get_bpm=lambda: bpm, set_bpm=set_bpm,
-                    tempo_locked=tempo_locked, arranger=arranger, arp=arp)
+                    tempo_locked=tempo_locked, arranger=arranger, arp=arp,
+                    stop_playback=stop_playback, file_done=finish_file)
 
     def open_menu():
         nonlocal menu_active, flash_until, vol_held_dir
@@ -514,9 +533,16 @@ def main():
         clear_on = clear_scope and int((now - clear_armed_at) * _CLEAR_BLINK_HZ * 2) % 2 == 0
         disp.set_key_color(BTN_CLEAR, palette.ARMED_CLEAR if clear_on else palette.OFF)
 
+        # MENU stays dimly lit while the menu is open: a reminder that
+        # MENU / UP / DOWN / RECORD are the menu's.
         for button in _PRESS_LIT:
-            disp.set_key_color(button, palette.PRESSED if button in held_keys
-                               else palette.OFF)
+            if button in held_keys:
+                color = palette.PRESSED
+            elif button == BTN_MENU and menu_active:
+                color = palette.MENU_OPEN
+            else:
+                color = palette.OFF
+            disp.set_key_color(button, color)
 
     if config.TIMING_PROBE:
         draw_lights = hw.timed_draw(draw_lights)
@@ -610,6 +636,12 @@ def main():
                     if menu.back(event_time):
                         close_menu()
                 else:
+                    # Starting a take (or an overdub) from the channel view:
+                    # back to the keyboard, so the pads play it. Stopping or
+                    # cancelling one leaves the view alone.
+                    if (channel_view_on and active is looper and
+                            looper.record_status is None):
+                        set_channel_view(False)
                     filtered.append(event)
 
             elif data in (BTN_INC, BTN_DEC):
@@ -636,11 +668,13 @@ def main():
                     flash("ARP " if on else "KEYS", now, _LOCK_FLASH_HOLD)
 
             elif data == BTN_CLEAR:
-                if not menu_active:
+                if menu_active:
+                    flash("MENU", now, _LOCK_FLASH_HOLD)   # close it to clear
+                else:
                     arm_clear("channel", now)
 
-            elif not menu_active:
-                filtered.append(event)   # MUTE: the active mode's
+            else:
+                filtered.append(event)   # MUTE: the active mode's, menu or not
 
         # ── Sync coordinator: detect looper arm while sequencer is playing ────
         # (RECORD only reaches `filtered` with the menu closed.)
@@ -658,12 +692,12 @@ def main():
         # ── Dispatch remaining events to active mode (or the menu overlay) ───
         # Each event is dispatched with its own true press/release time
         # (event_time), not this frame's `now` -- see hw.scan().
-        # Pads always go to the active mode, menu open or not; with the
-        # menu open, every function key in `filtered` is the menu's.
+        # Pads and MUTE always go to the active mode, menu open or not; with
+        # the menu open, every other function key in `filtered` is the menu's.
         for event in filtered:
             etype, data, event_time = event
             mode_event = (etype, data)
-            if menu_active and etype not in (PAD_DOWN, PAD_UP):
+            if menu_active and etype != PAD_DOWN and etype != PAD_UP and data != BTN_MUTE:
                 menu.handle_event(mode_event, event_time)
             else:
                 active.handle_event(mode_event, event_time)
