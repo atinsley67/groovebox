@@ -9,7 +9,7 @@ Main loop responsibilities:
   4. Run sync coordinator: looper + sequencer dual-play and snap-to-bar logic.
   5. Call synth_engine.update() each iteration for pending note-off releases.
 
-Function keys (BUTTONS.md has the player's version). Every key does one
+Function keys (docs/BUTTONS.md has the player's version). Every key does one
 thing, on press -- no long presses; only UP/DOWN repeat while held:
   LOOP/SEQ   — switch the global mode, showing its own view
   PLAY/STOP  — the transport, menu open or not

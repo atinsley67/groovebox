@@ -1,5 +1,5 @@
 """
-Phase 5's lights: the keyboard view (live / recording / playback / idle
+The key lights: the keyboard view (live / recording / playback / idle
 layout), the step view (on-steps, playhead, firing, muted), and every
 function key's light.
 """

@@ -1,6 +1,6 @@
 """
 The key colors, in one place: hue = meaning, brightness = activity (see
-the plan's color language). The pad views (pad_views.py) and code.py's
+the colour key at the top of docs/BUTTONS.md). The pad views (pad_views.py) and code.py's
 function-key lights take every color from here. Every value is full-scale
 RGB -- config.PIXEL_BRIGHTNESS caps them all, so DIM is relative to that
 cap. All to be tuned by playing on the device.

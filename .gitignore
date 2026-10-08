@@ -6,7 +6,7 @@ __pycache__/
 # Personal Claude Code permissions
 .claude/settings.local.json
 
-# CircuitPython secrets (WiFi, API keys) -- see settings.toml.example
+# CircuitPython secrets (WiFi, API keys), if ever added
 settings.toml
 
 # CircuitPython drive artefacts, in case the whole drive gets copied
