@@ -1,4 +1,4 @@
-# Input events — payload is pad index (0-7)
+# Input events — payload is pad index (0-15)
 PAD_DOWN = "pd"
 PAD_UP   = "pu"
 

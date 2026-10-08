@@ -1,5 +1,5 @@
 """
-The Phase 4 controls: LOOP/SEQ and MUTE on a tap, CLEAR with its MENU
+The function-key controls: LOOP/SEQ and MUTE on a tap, CLEAR with its MENU
 confirm, and the channel view (VIEW, KEY MODE select / mute).
 """
 

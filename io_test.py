@@ -1,7 +1,7 @@
 """
 Hardware I/O test loop — confirms every key, every key's NeoPixel, the
 alphanumeric display, and the I2S DAC are wired correctly, and is how
-config's layout tables are filled in (see HARDWARE.md). Standalone: only
+config's layout tables are filled in (see docs/HARDWARE.md). Standalone: only
 touches config.py, hw.py, display.py, keymap.py and palette.py, never the
 main app's modes/sequencing.
 

@@ -173,7 +173,8 @@ class NoteList:
     inside an array, but it visits every object a list holds, and a list of
     more than about 64 of them overflows its mark stack -- after which it
     re-scans the whole heap. One full layer (256 notes) doubled the time of
-    every collection, long enough to stall the audio (gc_experiment.py).
+    every collection, long enough to stall the audio (measured on the
+    device: +7.5 ms on a 7.6 ms collection; as these arrays, +0.12 ms).
 
     Reads like a list of pairs (len, index, iterate, sort) where speed
     doesn't matter; update() reads .pos and .pad directly, which allocates

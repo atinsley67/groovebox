@@ -31,7 +31,7 @@ The pads show the current view (see *LOOP mode*, *SEQ mode* and *VIEW — the ch
 | MENU | Dim white while the menu is open; white while held |
 | UP, DOWN, VIEW | White while held |
 
-The layout can be changed in `config.py` (`FUNC_LAYOUT`); see `HARDWARE.md`.
+The layout can be changed in `config.py` (`FUNC_LAYOUT`); see [HARDWARE.md](HARDWARE.md).
 
 ## The function keys
 
@@ -166,7 +166,7 @@ The three pentatonics never clash, whatever pads land together. The 7-note scale
 
 **It changes what's already recorded.** A recorded melodic note remembers its pad, not its pitch, so every loop plays in the new key or scale from its next note, with the same rhythm and shape. Notes already sounding finish at their old pitch. Drums aren't affected. `CHRD` always plays a minor-7th chord on each note, whatever the scale, so in the darker scales some of its chords sit outside it.
 
-Grooves save the key and scale. Grooves saved before they existed load in A minor pentatonic.
+Grooves save the key and scale.
 
 ### SND — sound editing
 
@@ -264,7 +264,7 @@ A groove saves everything:
 - every layer and track volume
 - the key and scale
 
-It doesn't save a recording that's still in progress, or which layer or track was selected. Grooves saved before channel volumes existed load with every volume at 100%. Grooves saved before the 16-pad grid sound the same as before: their melodic notes move to the pads that play those notes now.
+It doesn't save a recording that's still in progress, or which layer or track was selected.
 
 There are 16 slots. Pick one with UP / DOWN. A `*` means the slot holds a groove:
 

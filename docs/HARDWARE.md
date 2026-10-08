@@ -5,7 +5,25 @@ A Raspberry Pi Pico 2 W running CircuitPython 10, with:
 - an I2S DAC (Adafruit UDA1334A or similar)
 - an Adafruit quad 14-segment display (HT16K33) on I2C
 
-All pins are set in `config.py`. Change them there if you rewire.
+All pins are set in [`config.py`](../config.py). Change them there if you rewire.
+
+## Parts
+
+| Part | Notes |
+|---|---|
+| Raspberry Pi Pico 2 W | Running [CircuitPython 10](https://circuitpython.org/board/raspberry_pi_pico2_w/). Nothing uses the Wi-Fi yet, so a plain Pico 2 should work too (untested) |
+| [NeoKey 5x6 Ortho Snap-Apart](https://www.adafruit.com/product/5157) | Snapped into a 4x4 and a 2x5 piece, with 4 keys left over. Each key has a Kailh hot-swap socket and a NeoPixel |
+| 26 MX-compatible key switches and keycaps | Not included with the NeoKey. Clear or translucent keycaps let the light through. Kailh Low Profile switches don't fit |
+| [UDA1334A I2S stereo DAC](https://www.adafruit.com/product/3678) | Line-level out on a 3.5 mm jack: headphones or powered speakers |
+| [Quad alphanumeric display with I2C backpack](https://www.adafruit.com/product/2157) | 0.54" 14-segment, HT16K33. Comes in several colours; any will do |
+| [STEMMA QT to male header cable](https://www.adafruit.com/product/4209) | Connects the display to the proto board. Or solder 4 Dupont wires to the backpack's header pins instead |
+| A Pico proto board ([like these](https://www.amazon.com/dp/B08YN3HXX2)) | Solderable expansion board that the Pico, the DAC and the wiring sit on. Plain perfboard works too |
+| Dupont-style cable | For the two key pieces: the pad grid needs 11 wires (4 rows, 4 columns, pixel data, + and ground), the function block 10 (5 + 2 matrix lines, pixel data, + and ground). Plug them onto headers, or solder them straight to the pieces and/or the proto board |
+| 1N4007 diode | Drops the pixel power to ~4.3 V (see *Pixel power*) |
+| A front panel and enclosure | Mine has a 3D-printed front panel (not in the repo yet), plus whatever screws, standoffs and other bits your enclosure needs |
+| A USB cable | Everything runs from USB |
+
+Optional, and not used in the original build: two 330–470 Ω resistors and a 100 µF capacitor (10 V or more) for the NeoPixels, if they ever flicker (see *Wiring*).
 
 ## Wiring
 
@@ -25,14 +43,15 @@ Each piece is a key matrix: one set of lines on the anode side of its diodes (`*
 
 The function block's diodes run the other way from the pad grid's, relative to the board labels. That's why its labelled rows and columns are swapped in config.
 
-**Pixel data:** a 330–470 Ω resistor in series with each data line, near that piece's first pixel. The data goes to each piece's DIN pad (the start of its chain), not DOUT.
+**Pixel data** goes to each piece's DIN pad (the start of its chain), not DOUT. The original build wires it straight from the Pico.
 
 **Pixel power** (USB only):
 - VBUS → 1N4007 (striped end toward the pixels) → the + pin of both pieces. The diode drops the pixels to ~4.3 V, so the Pico's 3.3 V data signal is within their spec.
 - Ground to both pieces.
-- 100 µF across + and − where power enters the pad grid (mind the polarity).
 
 Running on battery or another supply would mean rethinking this.
+
+**If the pixels flicker or show wrong colours** (the original build doesn't need these): add a 330–470 Ω resistor in series with each data line, near that piece's first pixel, and a 100 µF capacitor across + and − where power enters the pad grid (mind the polarity).
 
 ## Libraries on the Pico
 
@@ -73,16 +92,11 @@ Comment the line back out to return to the app.
 
 - **No display text and no lights at all:** the code stopped at startup. Open the serial console; the error is printed there. A missing `neopixel` library is the usual cause.
 - **A whole piece ignores key presses:** its diodes may run the other way. Swap that piece's `ROW` and `COL` pin lists in config, then recalibrate its `KEYS` table.
-- **A piece's pixels stay dark:** check that its data goes to DIN, check the series resistor, and look for ~4.3 V across its + and −.
-- **Flickering or wrong colours:** the pixel data voltage margin. Check the resistors and the diode, or lower the brightness.
+- **A piece's pixels stay dark:** check that its data goes to DIN (and the series resistor, if you added one), and look for ~4.3 V across its + and −.
+- **Flickering or wrong colours:** the pixel data voltage margin. Check the diode, lower the brightness, or add the optional resistors and capacitor (see *Wiring*).
 
 ## Timing
 
-`config.TIMING_PROBE = True` prints main-loop timing to the serial console every 5 s; `timing_probe.py` explains each field. It also prints a `HEAP` line at each stage of boot and after a groove loads: memory in use and how long a garbage collection takes at that point, so a slow collection can be traced to code, sound tables, voices or recorded loops. Past runs, for comparison:
+`config.TIMING_PROBE = True` prints main-loop timing to the serial console every 5 s; [`timing_probe.py`](../timing_probe.py) explains each field. It also prints a `HEAP` line at each stage of boot and after a groove loads: memory in use and how long a garbage collection takes at that point, so a slow collection can be traced to code, sound tables, voices or recorded loops.
 
-| File | Run |
-|---|---|
-| `baseline-breadboard.txt` | Original breadboard buttons and AW9523 LEDs |
-| `baseline-display-fix.txt` | The same, after the display fixes |
-| `timing-neokey-first.txt` | First NeoKey run |
-| `timing-neokey-diagnosis.txt` | The NeoKey slow-pass diagnosis and its conclusions |
+Read its GC times as relative, not absolute: the probe's own bookkeeping can make collections slower than they are with it off.

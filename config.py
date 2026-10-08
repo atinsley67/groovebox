@@ -2,7 +2,7 @@ import board
 
 # Hardware: a NeoKey 4x4 pad grid + 2x5 function block, a NeoPixel under
 # every key, an I2S DAC and an HT16K33 4-char display. Wiring, calibration
-# and tuning: HARDWARE.md.
+# and tuning: docs/HARDWARE.md.
 
 # ── I2S DAC (Adafruit UDA1334A or similar) ───────────────────────────────────
 I2S_DATA_OUT    = board.GP18
@@ -43,10 +43,10 @@ BTN_CLEAR       = "clear"
 # its COL pins here. Spare: GP21, GP26-GP28.
 PAD_ROW_PINS   = [board.GP2, board.GP3, board.GP4, board.GP5]
 PAD_COL_PINS   = [board.GP7, board.GP8, board.GP0, board.GP1]
-PAD_PIXEL_PIN  = board.GP6    # pad grid NeoPixel data (330-470 ohm in series)
+PAD_PIXEL_PIN  = board.GP6    # pad grid NeoPixel data
 FUNC_ROW_PINS  = [board.GP12, board.GP13, board.GP14, board.GP15, board.GP22]  # the piece's 5 labelled columns
 FUNC_COL_PINS  = [board.GP10, board.GP11]                                     # its 2 labelled rows
-FUNC_PIXEL_PIN = board.GP9    # function block NeoPixel data (330-470 ohm in series)
+FUNC_PIXEL_PIN = board.GP9    # function block NeoPixel data
 
 # Key scanning (keypad, in the background). A change is reported once it has
 # been seen on KEY_DEBOUNCE_THRESHOLD scans in a row, KEY_SCAN_INTERVAL
@@ -66,7 +66,7 @@ PIXEL_BRIGHTNESS = 0.3
 # KEYS tables hold the keypad key number at each position, PIXELS tables
 # the NeoPixel index under it -- both found with io_test.py on the device
 # (it shows each key's number as you press it, and walks the pixels in
-# order; see HARDWARE.md).
+# order; see docs/HARDWARE.md).
 #
 # Pad n is the n-th position reading row by row from the top left (pads 0-3
 # are the top row). Kit sounds and sequencer steps follow that order;
@@ -133,7 +133,6 @@ MAX_LOOP_EVENTS = 256   # per layer
 # ── Modes ─────────────────────────────────────────────────────────────────────
 MODE_LOOPER    = 0
 MODE_SEQUENCER = 1
-MODE_GAME      = 2
-NUM_MODES      = 2  # game not yet implemented
+NUM_MODES      = 2
 
 MODE_NAMES = ["LOOP", "SEQ "]
