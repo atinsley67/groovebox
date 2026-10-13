@@ -1,5 +1,5 @@
 """The arpeggiator (arp.py): its patterns and timing on its own, the
-looper's exact presses, and the whole path through code.py -- KEY MODE,
+looper's exact presses, and the whole path through groovebox.py -- KEY MODE,
 the ARP menu item, and arp takes recorded on the grid."""
 
 import random
@@ -242,7 +242,7 @@ class ExactPressTest(unittest.TestCase):
         self.assertEqual(fakes.notes(loop._layers[BASS_LAYER].events), [(0.0, LOW)])
 
 
-# ── Through code.py ───────────────────────────────────────────────────────────
+# ── Through groovebox.py ──────────────────────────────────────────────────────
 
 def wait_until(h, condition, timeout=10.0):
     end = h.t + timeout

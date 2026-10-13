@@ -2,7 +2,7 @@
 Main-loop timing probe (config.TIMING_PROBE) -- a baseline to compare the
 button hardware against before and after a change.
 
-Wraps the Hardware object so code.py needs only one line: every hw.scan()
+Wraps the Hardware object so groovebox.py needs only one line: every hw.scan()
 call marks the start of a main-loop pass. Given the DisplayManager too, it
 also times the LED work. Every REPORT_EVERY seconds it prints one line to
 the serial console:
@@ -27,8 +27,8 @@ the serial console:
                 window; "~9gc" is how many collections that rate predicts in
                 the window (alloc x passes / free). If it matches >5ms, the
                 slow passes are GC. "?" if a collection got in the way.
-  leds draw     code.py's draw_lights (the pad view's frame and every key's
-                color, up to 60 a second), once code.py hands it over with
+  leds draw     groovebox.py's draw_lights (the pad view's frame and every key's
+                color, up to 60 a second), once groovebox.py hands it over with
                 timed_draw(): count, average, worst
   leds send     NeoPixel strip sends (DisplayManager.update calls that sent)
 
@@ -38,16 +38,16 @@ what makes the collections come round:
   ALLOC per pass, 96 samples (3 lost to a gc): total 1720B | scan 40 | loop ev 120 | loop 610 | synth 380 | ... | rest 300
 
   One pass in _ALLOC_SAMPLE_EVERY is a sample: memory in use is read around
-  hw.scan() and every method code.py hands to track(), and at the end of
+  hw.scan() and every method groovebox.py hands to track(), and at the end of
   the pass. Each figure is the average bytes per sampled pass; "rest" is
-  the total less the parts -- code.py's own loop and anything not tracked.
+  the total less the parts -- groovebox.py's own loop and anything not tracked.
   Reading memory walks the heap, so a sampled pass is slow: it's left out of
   the timing stats. A sample whose pass had a collection in it can't be
   measured, and is lost.
 
 Heap census: census() prints one HEAP line -- memory in use and a timed
-collection -- at each stage of boot, and after a groove loads (code.py, with
-config.TIMING_PROBE on), so the GC time can be traced to code, sound tables,
+collection -- at each stage of boot, and after a groove loads
+(groovebox.py, with config.TIMING_PROBE on), so the GC time can be traced to code, sound tables,
 voices or recorded loops. See census().
 
 Uses integer time.monotonic_ns(), not clock.now(): float seconds lose
@@ -124,7 +124,7 @@ class TimingProbe:
     # ── LED timing ────────────────────────────────────────────────────────────
 
     def timed_draw(self, draw):
-        """`draw` (code.py's draw_lights), timed on every call, and its
+        """`draw` (groovebox.py's draw_lights), timed on every call, and its
         allocation counted on sampled passes (as "lights")."""
         ns   = self._ns
         part = self._add_part("lights")
@@ -148,7 +148,7 @@ class TimingProbe:
         `label`, by replacing it with a wrapper. arity: how many arguments
         it takes (fixed-arity wrappers: *args would itself allocate). A
         third argument is optional and named `exact` (looper.handle_event's,
-        which code.py's play_arp passes by keyword), and a lone one is
+        which groovebox.py's play_arp passes by keyword), and a lone one is
         optional too (disp.update's now)."""
         part = self._add_part(label)
         fn   = getattr(obj, name)
@@ -376,7 +376,7 @@ def census(label, ns=time.monotonic_ns, collect=gc.collect,
            mem_alloc=getattr(gc, "mem_alloc", None),
            mem_free=getattr(gc, "mem_free", None), out=print):
     """One line on what's live in the heap at this point, for tracing the
-    GC time back to what holds it. code.py calls it at boot milestones and
+    GC time back to what holds it. groovebox.py calls it at boot milestones and
     after a groove loads:
 
       HEAP voices         used 142k free 251k gc 12.40ms

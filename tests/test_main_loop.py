@@ -1,5 +1,5 @@
 """
-End-to-end scenarios through the real code.py main loop (see harness.py):
+End-to-end scenarios through the real groovebox.py main loop (see harness.py):
 the list menu (reopening on the last item; SURE before EXT / MIRR), pads
 staying live under it, RECORD as its back key, MUTE working and CLEAR
 flashing MENU in it, the BPM item and tempo lock, UP/DOWN channel volume,

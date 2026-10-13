@@ -3,7 +3,7 @@ Groove slots on the CIRCUITPY drive -- the menu's SAVE / LOAD.
 
 A groove is everything needed to pick a session back up: BPM, sync mode,
 the sequencer pattern, every committed loop layer, which instrument each
-layer has, every sound edit and every channel volume (code.py's
+layer has, every sound edit and every channel volume (groovebox.py's
 capture_groove builds it from each module's own snapshot). One JSON file
 per slot, /grooves/slot1.json .. slot16.json -- readable from a computer
 too.
@@ -16,7 +16,7 @@ Versions ("v" in the file): 1 = the 8-pad layout, where a melodic layer's
 pad n was note n; 2 = the 16-pad grid, notes rising from the bottom left;
 3 = drum DEC works and the hats, clap, shaker, ride and crash were rebuilt;
 4 = the melodic key and scale (in "sounds"). load() hands back any of them
--- code.py's apply_groove converts a v1's notes, and a v1/v2's kit sounds;
+-- groovebox.py's apply_groove converts a v1's notes, and a v1/v2's kit sounds;
 anything before v4 loads in A minor pentatonic, what it was made in.
 """
 
@@ -58,7 +58,7 @@ def used_slots():
 
 
 def save(slot, data):
-    """Write `data` (code.py's capture_groove() dict) to `slot`. Written to
+    """Write `data` (groovebox.py's capture_groove() dict) to `slot`. Written to
     a temp file first, so a failed write (drive full, read-only) never
     clobbers what the slot already held. Raises OSError."""
     try:

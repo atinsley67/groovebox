@@ -237,7 +237,14 @@ def ticks_ms():
     return (int(round(CLOCK.t * 1000)) + TICKS_OFFSET[0]) & _TICKS_MASK
 
 
-_module("supervisor", ticks_ms=ticks_ms)
+RELOADS = []   # one entry per supervisor.reload() call
+
+
+def reload():
+    RELOADS.append(CLOCK.t)
+
+
+_module("supervisor", ticks_ms=ticks_ms, reload=reload)
 
 
 class Event:
@@ -293,6 +300,56 @@ class KeyMatrix:
 
 
 _module("keypad", Event=Event, KeyMatrix=KeyMatrix)
+
+
+# digitalio, wired as a key matrix: a held key joins its anode line to its
+# cathode line through its diode, so an anode pulled up reads low while
+# its cathode is driven low.
+HELD_LINES = set()   # test hook: (anode pin, cathode pin) of each key held
+_driven_low = set()
+OPEN_PINS  = set()   # pins claimed and not yet deinit()ed
+
+
+class Pull:
+    UP   = "up"
+    DOWN = "down"
+
+
+class DigitalInOut:
+    def __init__(self, pin):
+        self.pin     = pin
+        self.pull    = None
+        self._output = False
+        self._value  = False
+        OPEN_PINS.add(pin)
+
+    def switch_to_input(self, pull=None):
+        self._output = False
+        self.pull    = pull
+        _driven_low.discard(self.pin)
+
+    def switch_to_output(self, value=False):
+        self._output = True
+        self._value  = value
+        if value:
+            _driven_low.discard(self.pin)
+        else:
+            _driven_low.add(self.pin)
+
+    @property
+    def value(self):
+        if self._output:
+            return self._value
+        low = any(anode == self.pin and cathode in _driven_low
+                  for anode, cathode in HELD_LINES)
+        return not low if self.pull == Pull.UP else low
+
+    def deinit(self):
+        _driven_low.discard(self.pin)
+        OPEN_PINS.discard(self.pin)
+
+
+_module("digitalio", DigitalInOut=DigitalInOut, Pull=Pull)
 
 
 class NeoPixel:

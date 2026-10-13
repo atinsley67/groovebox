@@ -81,13 +81,14 @@ def _ramp_down():
     """One-shot LFO waveform: starts high, ends low."""
     return array.array("h", [int(32767 * (1.0 - 2.0 * i / _W)) for i in range(_W)])
 
-def _partials(partials):
+def _partials(partials, length=_W):
     """Sum of sines at whole-number multiples of the table's frequency,
     peak-normalized to fill the int16 range. partials: [(multiple,
-    amplitude), ...]."""
+    amplitude), ...]. A table `length` samples long holds multiples up to
+    length / 2, but they only come out clean well below that."""
     raw = []
-    for i in range(_W):
-        t = 2 * math.pi * i / _W
+    for i in range(length):
+        t = 2 * math.pi * i / length
         raw.append(sum(amp * math.sin(mult * t) for mult, amp in partials))
     peak = max(abs(v) for v in raw)
     return array.array("h", [int(32767 * v / peak) for v in raw])
@@ -196,10 +197,16 @@ WAVEFORM_TABLES = [
     # BELL: a bell's inharmonic partials (~1 : 2.75 : 5.5 : 9) as harmonics
     # of a quarter of the note -- divisor 4.
     _partials([(4, 1.0), (11, 0.6), (22, 0.35), (36, 0.2)]),
-    # CHRD: a whole minor-7th chord (just 10 : 12 : 15 : 18), each tone with
-    # a few saw-like overtones; the pad's note is harmonic 10 -- divisor 10.
-    _partials([(tone * n, (1.0 if tone == 10 else 0.85) / n)
-               for tone in (10, 12, 15, 18) for n in (1, 2, 3, 4)]),
+    # CHRD: a whole minor-7th chord, each tone with a few saw-like
+    # overtones; the pad's note is harmonic 32 -- divisor 32. The chord is
+    # 32 : 38 : 48 : 57, every tone within 2.5 cents of equal temperament,
+    # so it's in tune with the melodic voices. (A just 10 : 12 : 15 : 18
+    # put its 3rd and 7th 16-18 cents sharp of them, beating against any
+    # melody on those notes.) Overtones stop short of multiple 128: a 1024
+    # table plays them cleanly.
+    _partials([(tone * n, (1.0 if tone == 32 else 0.85) / n)
+               for tone in (32, 38, 48, 57) for n in (1, 2, 3) if tone * n < 128],
+              length=1024),
     # SSAW: supersaw -- divisor 64.
     _supersaw(4096, 64, 1),
 ]
@@ -207,7 +214,7 @@ WAVEFORM_TABLES = [
 # What each WAVEFORM_TABLES entry's Note frequency is divided by: the
 # multi-partial tables hold the note as harmonic N of a lower fundamental
 # (that's what lets them place partials off the harmonic series).
-WAVEFORM_DIVISORS = [1, 1, 1, 1, 1, 1, 1, 1, 4, 10, 64]
+WAVEFORM_DIVISORS = [1, 1, 1, 1, 1, 1, 1, 1, 4, 32, 64]
 
 # Kit waveforms, built once and shared by every kit instance (building them
 # per instance would duplicate the tables for no audible benefit).

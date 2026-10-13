@@ -2,7 +2,7 @@
 Arpeggiator -- plays the pads you hold on a LOOP layer one at a time, in
 time.
 
-An input effect in front of the looper: code.py hands it the pads your
+An input effect in front of the looper: groovebox.py hands it the pads your
 fingers press (press / release) instead of the looper, and sends what it
 plays (update / stop) on to looper.handle_event(..., exact=True), exactly
 as fingers would. The looper records the arp's notes as ordinary notes, so
@@ -21,8 +21,8 @@ view). One arp runs at a time, for the active layer.
         one's release, so the voice's GLID slides from one to the next.
 
 Timing. Note k is due at anchor + k * step (step = one RATE), each one sent
-with its due time, not the frame's, like code.py's TICKs. With the tempo
-clock running, code.py hands over every TICK (sync), and the next note is
+with its due time, not the frame's, like groovebox.py's TICKs. With the tempo
+clock running, groovebox.py hands over every TICK (sync), and the next note is
 re-pinned to that tick's grid, so the arp can't drift off the sequencer or
 a synced loop. Without it the arp keeps its own time at the menu BPM.
 
@@ -124,7 +124,7 @@ class Arpeggiator:
         """The pad the arp is sounding, or None."""
         return self._sounding
 
-    # ── The tempo clock (code.py) ─────────────────────────────────────────────
+    # ── The tempo clock (groovebox.py) ────────────────────────────────────────
 
     def sync(self, tick_at, step_dur):
         """A TICK of the tempo clock, due at tick_at. Re-pins the next note
@@ -148,7 +148,7 @@ class Arpeggiator:
         self._step_dur = step_dur
         self._restep()
 
-    # ── The fingers (code.py) ─────────────────────────────────────────────────
+    # ── The fingers (groovebox.py) ────────────────────────────────────────────
 
     def press(self, pad, t, layer, count_in_start=None):
         """A pad pressed at t on `layer`. count_in_start: the looper's,

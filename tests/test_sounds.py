@@ -261,8 +261,28 @@ class MelodicVoiceTest(unittest.TestCase):
     def test_divisor_wave_plays_the_pad_pitch(self):
         voice = self.assign("CHRD")
         self.engine.trigger_layer_pad(1, 12)
-        self.assertAlmostEqual(fakes.live_pair(voice)["note"].frequency * 10,
+        divisor = sound_presets.WAVEFORM_DIVISORS[voice["params"]["wave"]]
+        self.assertEqual(divisor, 32)
+        self.assertAlmostEqual(fakes.live_pair(voice)["note"].frequency * divisor,
                                self.engine.pad_frequency(1, 12))
+
+    def test_the_chord_is_in_equal_temperament(self):
+        """CHRD's minor-7th chord, measured from its own wave: every tone
+        within 3 cents of the equal-tempered note the other voices play."""
+        table = sound_presets.WAVEFORM_TABLES[synth_params.WAVEFORM_NAMES.index("CHRD")]
+        size  = len(table)
+
+        def strength(harmonic):   # how much of this multiple the wave holds
+            re = sum(table[i] * math.cos(2 * math.pi * harmonic * i / size) for i in range(size))
+            im = sum(table[i] * math.sin(2 * math.pi * harmonic * i / size) for i in range(size))
+            return math.hypot(re, im)
+
+        root = 32
+        loudest = sorted(range(1, 64), key=strength, reverse=True)[:4]
+        self.assertEqual(sorted(loudest), [32, 38, 48, 57])
+        for harmonic, semitones in zip((38, 48, 57), (3, 7, 10)):
+            cents = 1200 * math.log2(harmonic / root)
+            self.assertLess(abs(cents - 100 * semitones), 3, harmonic)
 
     def test_every_voice_sums_its_bend(self):
         for name in sound_presets.INSTRUMENT_NAMES[1:]:

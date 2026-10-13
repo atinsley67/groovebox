@@ -1,12 +1,12 @@
 """
 DisplayManager wraps:
   - the keys' NeoPixels (pixels.py): a color per pad, set a frame at a
-    time (pad_views.py draws them; code.py sends the active view's), and a
-    color per function key (code.py's key lights)
+    time (pad_views.py draws them; groovebox.py sends the active view's), and a
+    color per function key (groovebox.py's key lights)
   - Adafruit Quad Alphanumeric Display (HT16K33 14-segment, 4 chars)
 
 The modes write the 4-char text (show_looper_state / show_sequencer_state);
-an overlay can hold it (the menu, or code.py's volume / LOCK / CLEAR
+an overlay can hold it (the menu, or groovebox.py's volume / LOCK / CLEAR
 flash) -- see hold_text().
 
 Call update(now) once per main-loop pass: the NeoPixels are sent from
@@ -18,6 +18,8 @@ from adafruit_ht16k33 import segments
 import config
 import palette
 import pixels
+
+BRIGHTNESS = 0.5   # the 4-char display's level (0.0-1.0)
 
 
 class DisplayManager:
@@ -35,7 +37,7 @@ class DisplayManager:
         self._seg = segments.Seg14x4(i2c, address=config.ALPHANUM_ADDR,
                                      auto_write=True)
         self._seg.auto_write = False
-        self._seg.brightness = 0.5
+        self._seg.brightness = BRIGHTNESS
         self._text      = None   # what the display shows now (None = unknown)
         self._text_held = False
 
@@ -70,6 +72,11 @@ class DisplayManager:
         return self._leds
 
     # ── Alphanumeric display helpers ──────────────────────────────────────────
+
+    def set_brightness(self, level):
+        """The 4-char display's brightness, 0.0-1.0 (BRIGHTNESS normally;
+        game_intro.py dims it for the echoes)."""
+        self._seg.brightness = level
 
     def hold_text(self, held):
         """While held, the modes' state readouts (show_looper_state /

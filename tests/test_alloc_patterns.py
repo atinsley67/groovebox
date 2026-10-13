@@ -20,7 +20,8 @@ import fakes  # noqa: F401  (sets up the paths)
 
 # Modules whose code runs every main-loop pass or every light redraw.
 _HOT_MODULES = ("looper.py", "arp.py", "sequencer.py", "synth_engine.py",
-                "pad_views.py", "display.py", "pixels.py", "hw.py", "clock.py")
+                "pad_views.py", "display.py", "pixels.py", "hw.py", "clock.py",
+                "game.py")
 
 
 def _built_each_time(node):

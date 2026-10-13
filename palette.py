@@ -1,9 +1,10 @@
 """
 The key colors, in one place: hue = meaning, brightness = activity (see
-the colour key at the top of docs/BUTTONS.md). The pad views (pad_views.py) and code.py's
-function-key lights take every color from here. Every value is full-scale
-RGB -- config.PIXEL_BRIGHTNESS caps them all, so DIM is relative to that
-cap. All to be tuned by playing on the device.
+the colour key at the top of docs/BUTTONS.md). The pad views
+(pad_views.py) and groovebox.py's function-key lights take every color
+from here. Every value is full-scale RGB -- config.PIXEL_BRIGHTNESS caps
+them all, so DIM is relative to that cap. All to be tuned by playing on
+the device.
 """
 
 DIM = 0.25   # the "state" level (has content, playing): a fraction of full
@@ -43,3 +44,7 @@ KEY_MUTE    = MUTED                 # KEY MODE: pad taps mute
 KEY_ARP     = YELLOW                # KEY MODE: the active layer's arp is on
 PRESSED     = WHITE                 # MENU / UP / DOWN / VIEW while held; io_test
 MENU_OPEN   = scaled(WHITE, DIM)    # MENU: the menu is open
+
+# ── The game (game.py) ────────────────────────────────────────────────────────
+GAME_HIT    = GREEN                 # a pad you played right
+GAME_CALL   = scaled(CYAN, DIM)     # the function keys while the box plays
