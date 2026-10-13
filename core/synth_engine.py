@@ -3,13 +3,13 @@ import audiobusio
 import math
 import synthio
 
-import clock
+from core import clock
 import config
-import scales
-from sound_presets import (build_kit_instance, instantiate_instrument,
-                           upgrade_v2_kit_params, voice_notes,
-                           INSTRUMENT_NAMES, WAVEFORM_DIVISORS, WAVEFORM_TABLES)
-from synth_params import GLIDE_OFF
+from core import scales
+from core.sound_presets import (build_kit_instance, instantiate_instrument,
+                                upgrade_v2_kit_params, voice_notes,
+                                INSTRUMENT_NAMES, WAVEFORM_DIVISORS, WAVEFORM_TABLES)
+from core.synth_params import GLIDE_OFF
 
 _VIBRATO_MAX_BEND = 1.0 / 12  # bend depth (1 semitone) at full LFO depth
 _FULL_VOLUME      = 100       # channel volumes are whole percents, 0-100

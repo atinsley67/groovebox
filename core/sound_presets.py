@@ -47,8 +47,7 @@ import os
 import synthio
 
 import config
-import scales
-import synth_params
+from core import scales, synth_params
 
 _W = 256  # waveform table length
 

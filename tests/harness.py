@@ -30,17 +30,13 @@ import tempfile
 
 import fakes
 
-import arp
+from gbox import arp
 import config
-import display
-import groove
-import hw
-import keymap
-import looper
-import menu
-import sequencer
-import startup
-import synth_engine
+from core import display
+from gbox import groove
+from core import hw, keymap
+from gbox import looper, menu, sequencer, startup
+from core import synth_engine
 
 FRAME = 0.001   # seconds of fake time per main-loop pass
 
@@ -201,7 +197,7 @@ class Harness:
         try:
             # A fresh copy of the module every run, so its `from x import y`
             # names bind to the patches above.
-            path = os.path.join(fakes.ROOT, "groovebox.py")
+            path = fakes.source("groovebox.py")
             spec = importlib.util.spec_from_file_location("groovebox_run", path)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)

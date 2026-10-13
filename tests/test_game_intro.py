@@ -6,12 +6,11 @@ import unittest
 import fakes
 
 import config
-import display
-import game_intro
-import keymap
-import palette
-from display import DisplayManager
-from event_types import BTN_DOWN, BTN_UP, PAD_DOWN
+from core import display
+from echo import game_intro
+from core import keymap, palette
+from core.display import DisplayManager
+from core.event_types import BTN_DOWN, BTN_UP, PAD_DOWN
 
 LAYER, VOLUME = 5, 80
 

@@ -7,15 +7,15 @@ import unittest
 
 import fakes  # noqa: F401  (installs the CircuitPython fakes first)
 
-import looper
-import palette
-from arp import Arpeggiator
+from gbox import looper
+from core import palette
+from gbox.arp import Arpeggiator
 from config import (BTN_MENU, BTN_INC, BTN_RECORD, BTN_MODE, BTN_PLAY_STOP,
                     BTN_VIEW, BTN_KEY_MODE, NUM_LOOP_LAYERS)
-from event_types import PAD_DOWN, PAD_UP
+from core.event_types import PAD_DOWN, PAD_UP
 from harness import FRAME, run
-from looper import LooperMode
-from synth_engine import SynthEngine
+from gbox.looper import LooperMode
+from core.synth_engine import SynthEngine
 
 STEP = 0.125            # 120 BPM sixteenths
 BASS_LAYER = 1          # melodic by default

@@ -21,12 +21,10 @@ follow the wiring.
 import math
 import time
 
-import clock
+from core import clock
 import config
-import display
-import keymap
-import palette
-from event_types import BTN_DOWN, PAD_DOWN
+from core import display, keymap, palette
+from core.event_types import BTN_DOWN, PAD_DOWN
 
 MOTIF       = (0, 2, 3, 5)       # scale notes, one a letter: root, 4th, 5th, octave
 TEXT        = ("E   ", "EC  ", "ECH ", "ECHO")

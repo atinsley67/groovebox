@@ -16,7 +16,7 @@ Pad lights: the selected track's steps and the playhead
 (pad_views.StepView).
 """
 
-from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, TICK
+from core.event_types import PAD_DOWN, PAD_UP, BTN_DOWN, TICK
 from config import BTN_MUTE, STEPS_PER_BAR, NUM_TRACKS, DEFAULT_BPM
 
 

@@ -7,11 +7,9 @@ import unittest
 import fakes
 
 import config
-import sound_presets
-import synth_engine
-import synth_params
-from sound_presets import voice_notes
-from synth_engine import SynthEngine
+from core import sound_presets, synth_engine, synth_params
+from core.sound_presets import voice_notes
+from core.synth_engine import SynthEngine
 
 KIT_LAYER = 0
 CHH, OHH, CLAP, RIDE, CRSH = 2, 3, 5, 14, 15

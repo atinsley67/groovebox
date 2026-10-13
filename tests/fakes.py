@@ -20,6 +20,30 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+# The code's packages (see code.py).
+PACKAGES = ("core", "gbox", "echo", "tools")
+
+
+def source(name):
+    """The path of module file `name` ("looper.py"), whichever package
+    it's in (or the root)."""
+    for folder in PACKAGES + ("",):
+        path = os.path.join(ROOT, folder, name)
+        if os.path.exists(path):
+            return path
+    raise FileNotFoundError(name)
+
+
+def sources():
+    """Every module file the device runs: the root's and the packages'."""
+    paths = [os.path.join(ROOT, name) for name in sorted(os.listdir(ROOT))
+             if name.endswith(".py")]
+    for folder in PACKAGES:
+        paths += [os.path.join(ROOT, folder, name)
+                  for name in sorted(os.listdir(os.path.join(ROOT, folder)))
+                  if name.endswith(".py")]
+    return paths
+
 
 def _module(name, **attrs):
     mod = types.ModuleType(name)
@@ -405,6 +429,6 @@ class FakeClock:
 
 CLOCK = FakeClock()   # before clock is imported: it reads ticks_ms() at import
 
-import clock   # noqa: E402  (project module; needs the path set up above)
+from core import clock   # noqa: E402  (project module; needs the path set up above)
 
 clock.now = CLOCK.now

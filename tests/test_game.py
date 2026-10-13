@@ -16,15 +16,13 @@ import unittest
 import fakes
 
 import config
-import game
-import hw
-import keymap
-import palette
+from echo import game
+from core import hw, keymap, palette
 from config import (BTN_DEC, BTN_INC, BTN_MENU, BTN_MODE, BTN_MUTE,
                     BTN_PLAY_STOP, BTN_RECORD)
-from event_types import BTN_DOWN, BTN_UP, PAD_DOWN, PAD_UP
-from game import (CALL, KIT, PLAYER, ME_STEPS, YOU_STEPS, SHAPES, STAGES,
-                  MAX_NOTES, Game, Phrase, compose, stage_row, beat_strength)
+from core.event_types import BTN_DOWN, BTN_UP, PAD_DOWN, PAD_UP
+from echo.game import (CALL, KIT, PLAYER, ME_STEPS, YOU_STEPS, SHAPES, STAGES,
+                       MAX_NOTES, Game, Phrase, compose, stage_row, beat_strength)
 
 _KICK, _WOOD, _RIM, _CRSH = 0, 7, 11, 15
 _DT = 0.001   # seconds per update in these tests
@@ -301,7 +299,7 @@ class ComposeTest(unittest.TestCase):
     def test_the_leads_sit_low_enough(self):
         """Every lead's top pad (3 octaves up) stays under ~3.6 kHz, in any
         key the stages use: above that the waves go thin and out of tune."""
-        import synth_engine
+        from core import synth_engine
         engine = synth_engine.SynthEngine()
         top_pad = keymap.PAD_OF_NOTE[15]
         for name, (instrument, octaves, _) in game._LEADS.items():
@@ -1242,9 +1240,9 @@ class RunTest(unittest.TestCase):
                 fakes.CLOCK.t += 0.001
                 return real.scan()
 
-        import display
-        import game_intro
-        import synth_engine
+        from core import display
+        from echo import game_intro
+        from core import synth_engine
         built = {}
         saved = (synth_engine.SynthEngine, display.DisplayManager, game_intro.run)
 
@@ -1325,25 +1323,39 @@ class LauncherTest(unittest.TestCase):
             order.append("check")
             return menu_held and button == BTN_MENU
 
+        import echo
+        import gbox
         saved = (hw.Hardware, hw.held_at_startup)
-        stubs = {
-            "game": types.SimpleNamespace(run=lambda h: ran.append(("game", type(h)))),
-            "groovebox": types.SimpleNamespace(main=lambda h: ran.append(("groovebox", type(h)))),
-        }
-        saved_mods = {name: sys.modules.get(name) for name in stubs}
+        # (package, module name, stub): code.py's `from echo import game`
+        # takes the package's attribute, or sys.modules' entry if it has none.
+        stubs = (
+            (echo, "game", types.SimpleNamespace(run=lambda h: ran.append(("game", type(h))))),
+            (gbox, "groovebox", types.SimpleNamespace(main=lambda h: ran.append(("groovebox", type(h))))),
+        )
+        missing = object()
+        saved_mods = [(package, name, getattr(package, name, missing),
+                       sys.modules.get(f"{package.__name__}.{name}", missing))
+                      for package, name, _ in stubs]
         hw.Hardware, hw.held_at_startup = StubHardware, held
-        sys.modules.update(stubs)
+        for package, name, stub in stubs:
+            setattr(package, name, stub)
+            sys.modules[f"{package.__name__}.{name}"] = stub
         try:
             path = os.path.join(fakes.ROOT, "code.py")
             spec = importlib.util.spec_from_file_location("launcher", path)
             spec.loader.exec_module(importlib.util.module_from_spec(spec))
         finally:
             hw.Hardware, hw.held_at_startup = saved
-            for name, mod in saved_mods.items():
-                if mod is None:
-                    sys.modules.pop(name, None)
+            for package, name, attr, mod in saved_mods:
+                if attr is missing:
+                    delattr(package, name)
                 else:
-                    sys.modules[name] = mod
+                    setattr(package, name, attr)
+                key = f"{package.__name__}.{name}"
+                if mod is missing:
+                    sys.modules.pop(key, None)
+                else:
+                    sys.modules[key] = mod
         self.assertEqual(order, ["check", "hardware"])   # before keypad claims the pins
         return ran
 

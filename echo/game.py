@@ -87,13 +87,11 @@ import random
 from array import array
 
 import config
-import game_scores
-import keymap
-import palette
-import scales
-from event_types import BTN_DOWN, PAD_DOWN, PAD_UP
-from sound_presets import INSTRUMENT_NAMES
-from synth_params import WAVEFORM_NAMES
+from echo import game_scores
+from core import keymap, palette, scales
+from core.event_types import BTN_DOWN, PAD_DOWN, PAD_UP
+from core.sound_presets import INSTRUMENT_NAMES
+from core.synth_params import WAVEFORM_NAMES
 
 # ── Tuning ────────────────────────────────────────────────────────────────────
 # Added to every press time before judging, in seconds: raise it if on-time
@@ -1279,10 +1277,10 @@ def run(hw):
     quitting reloads, back into the groovebox."""
     import supervisor
 
-    import clock
-    import game_intro
-    from display import DisplayManager
-    from synth_engine import SynthEngine
+    from core import clock
+    from echo import game_intro
+    from core.display import DisplayManager
+    from core.synth_engine import SynthEngine
 
     sound = SynthEngine()
     disp  = DisplayManager(hw.i2c)

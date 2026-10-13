@@ -12,7 +12,7 @@ frame() runs up to ~60 times a second, so none of them allocate: each
 fills one reused list from colors built at import (or construction).
 """
 
-import palette
+from core import palette
 from config import NUM_LOOP_LAYERS, NUM_PADS, NUM_TRACKS, STEPS_PER_BAR
 
 

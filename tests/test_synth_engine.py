@@ -4,8 +4,8 @@ import unittest
 
 import fakes  # installs the CircuitPython fakes first
 
-from sound_presets import voice_notes
-from synth_engine import SynthEngine
+from core.sound_presets import voice_notes
+from core.synth_engine import SynthEngine
 
 KIT_LAYER  = 0   # default layer 0 = KIT
 BASS_LAYER = 1   # default layer 1 = BASS (melodic)

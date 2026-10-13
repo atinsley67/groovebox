@@ -76,28 +76,27 @@ import config
 # for every garbage collection to walk -- code, sound tables, voices, and
 # (in apply_groove) a loaded groove. See timing_probe.census.
 if config.TIMING_PROBE:
-    from timing_probe import census
+    from tools.timing_probe import census
     census("boot")
-    import sound_presets   # noqa: F401 -- on its own, to measure its tables
+    from core import sound_presets   # noqa: F401 -- on its own, to measure its tables
     census("sound tables")
 
-import clock
-import palette
+from core import clock, palette
 from config import (DEFAULT_BPM, STEPS_PER_BAR, NUM_LOOP_LAYERS, NUM_TRACKS,
                     MODE_LOOPER, MODE_SEQUENCER, NUM_MODES, MODE_NAMES,
                     BTN_MODE, BTN_RECORD, BTN_PLAY_STOP, BTN_INC, BTN_DEC,
                     BTN_MENU, BTN_MUTE, BTN_VIEW, BTN_KEY_MODE, BTN_CLEAR)
-from event_types import BTN_DOWN, BTN_UP, PAD_DOWN, PAD_UP, TICK, BEAT
+from core.event_types import BTN_DOWN, BTN_UP, PAD_DOWN, PAD_UP, TICK, BEAT
 
-from synth_engine import SynthEngine
-from display      import DisplayManager
-from looper       import LooperMode
-from sequencer    import SequencerMode
-from menu         import MenuMode
-from pad_views    import KeyboardView, StepView, ChannelView
-from arranger     import Arranger
-from arp          import Arpeggiator
-import startup
+from core.synth_engine import SynthEngine
+from core.display      import DisplayManager
+from gbox.looper       import LooperMode
+from gbox.sequencer    import SequencerMode
+from gbox.menu         import MenuMode
+from gbox.pad_views    import KeyboardView, StepView, ChannelView
+from gbox.arranger     import Arranger
+from gbox.arp          import Arpeggiator
+from gbox              import startup
 
 if config.TIMING_PROBE:
     census("imports")
@@ -134,7 +133,7 @@ def main(hw):
 
     startup.run(hw, disp)
     if config.TIMING_PROBE:
-        import timing_probe
+        from tools import timing_probe
         hw = timing_probe.TimingProbe(hw, disp)
 
     seq        = SequencerMode(synth, disp)

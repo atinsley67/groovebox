@@ -16,8 +16,7 @@ there, rate-limited.
 from adafruit_ht16k33 import segments
 
 import config
-import palette
-import pixels
+from core import palette, pixels
 
 BRIGHTNESS = 0.5   # the 4-char display's level (0.0-1.0)
 

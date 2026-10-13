@@ -13,7 +13,7 @@ failed write never loses the board already there.
 import json
 import os
 
-from groove import error_label   # noqa: F401 -- the game's, too ("RO  ", "FULL")
+from gbox.groove import error_label   # noqa: F401 -- the game's, too ("RO  ", "FULL")
 
 SIZE     = 10
 NAME_LEN = 4

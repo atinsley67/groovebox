@@ -34,7 +34,7 @@ class MembershipTupleTest(unittest.TestCase):
     def test_no_tuples_of_names_in_hot_modules(self):
         found = []
         for name in _HOT_MODULES:
-            path = os.path.join(fakes.ROOT, name)
+            path = fakes.source(name)
             with open(path, encoding="utf-8") as f:
                 tree = ast.parse(f.read(), name)
             for node in ast.walk(tree):

@@ -29,10 +29,10 @@ import digitalio
 import keypad
 import supervisor
 
-import clock
+from core import clock
 import config
-import keymap
-from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, BTN_UP
+from core import keymap
+from core.event_types import PAD_DOWN, PAD_UP, BTN_DOWN, BTN_UP
 
 _TICKS_PERIOD = 1 << 29
 _TICKS_MAX    = _TICKS_PERIOD - 1

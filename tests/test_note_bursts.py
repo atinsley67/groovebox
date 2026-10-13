@@ -16,14 +16,12 @@ import unittest
 
 import fakes  # installs the CircuitPython fakes first
 
-import groove
-import looper
-import palette
-import synth_engine
+from gbox import groove, looper
+from core import palette, synth_engine
 from config import BTN_MENU, BTN_INC, BTN_RECORD, MAX_LOOP_EVENTS
 from harness import run
-from looper import LooperMode, NoteList
-from synth_engine import SynthEngine
+from gbox.looper import LooperMode, NoteList
+from core.synth_engine import SynthEngine
 
 KIT_LAYER  = 0
 BASS_LAYER = 1

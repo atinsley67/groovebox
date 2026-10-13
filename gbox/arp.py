@@ -45,9 +45,9 @@ No hardware imports, so it runs on the desktop as is.
 
 import random
 
-import keymap
-import looper
-from event_types import PAD_DOWN, PAD_UP
+from core import keymap
+from gbox import looper
+from core.event_types import PAD_DOWN, PAD_UP
 
 MODE_NAMES = ["UP  ", "DN  ", "UPDN", "RAND", "ORDR"]
 RATE_NAMES = ["8TH ", "16TH", "32ND"]

@@ -13,9 +13,9 @@ drifting as it goes. Key positions come from config's layout tables
 
 import time
 
-import clock
+from core import clock
 import config
-import palette
+from core import palette
 
 MARQUEE_TEXT        = "GROOVEBOX"
 MARQUEE_FRAME_DELAY = 0.12    # seconds per scroll step; the wave lasts as long as the scroll

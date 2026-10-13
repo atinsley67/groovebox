@@ -8,11 +8,11 @@ import unittest
 
 import fakes  # noqa: F401  (installs the CircuitPython fakes first)
 
-import arranger
-from arranger import Arranger
+from gbox import arranger
+from gbox.arranger import Arranger
 from config import BTN_MENU, BTN_DEC, BTN_MODE, BTN_PLAY_STOP, BTN_RECORD
 from harness import run
-from looper import NoteList
+from gbox.looper import NoteList
 
 
 class FakeMode:

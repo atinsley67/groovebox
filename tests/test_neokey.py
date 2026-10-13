@@ -11,13 +11,12 @@ import unittest
 import fakes
 
 import config
-import keymap
-import palette
+from core import keymap, palette
 from config import (BTN_MODE, BTN_MENU, BTN_INC, BTN_DEC, BTN_RECORD,
                     BTN_PLAY_STOP, BTN_MUTE, BTN_VIEW, BTN_KEY_MODE, BTN_CLEAR)
-from event_types import PAD_DOWN, PAD_UP, BTN_DOWN
+from core.event_types import PAD_DOWN, PAD_UP, BTN_DOWN
 from harness import run
-from hw import Hardware
+from core.hw import Hardware
 
 MS = 0.001
 
@@ -152,7 +151,7 @@ class HardwareTest(unittest.TestCase):
 
 class PixelLedsTest(unittest.TestCase):
     def setUp(self):
-        import pixels
+        from core import pixels
         self.leds = pixels.PixelLeds()
         self.pads = self.leds._pads.pixels
         self.func = self.leds._func.pixels
@@ -269,7 +268,7 @@ class ClockTest(unittest.TestCase):
 
     def real_clock(self):
         spec = importlib.util.spec_from_file_location(
-            "real_clock", fakes.ROOT + "/clock.py")
+            "real_clock", fakes.source("clock.py"))
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module

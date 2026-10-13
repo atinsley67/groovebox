@@ -82,12 +82,11 @@ SAVE / LOAD (either mode): pick one of groove.NUM_SLOTS slots. The label is
   still playing through that would click. Keys wait until it's done.
 """
 
-import arp as arp_settings
-import clock
-import groove
-import scales
-import synth_params
-from event_types import BTN_DOWN, BTN_UP
+from gbox import arp as arp_settings
+from core import clock
+from gbox import groove
+from core import scales, synth_params
+from core.event_types import BTN_DOWN, BTN_UP
 from config import BTN_INC, BTN_DEC, BTN_MENU
 
 _REPEAT_DELAY    = 0.4   # seconds UP/DOWN must be held before auto-repeat starts

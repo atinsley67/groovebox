@@ -11,7 +11,7 @@ import unittest
 
 import fakes  # installs the CircuitPython fakes first
 
-import palette
+from core import palette
 from harness import Harness, run
 from config import (BTN_MENU, BTN_PLAY_STOP, BTN_INC, BTN_DEC, BTN_RECORD,
                     BTN_MUTE, BTN_MODE, BTN_VIEW, BTN_CLEAR, NUM_LOOP_LAYERS)

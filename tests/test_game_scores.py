@@ -8,8 +8,8 @@ import unittest
 
 import fakes  # noqa: F401  (sets up the paths)
 
-import game_scores
-from game_scores import empty, insert, rank_for
+from echo import game_scores
+from echo.game_scores import empty, insert, rank_for
 
 
 def board(*scores):

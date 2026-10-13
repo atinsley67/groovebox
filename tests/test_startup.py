@@ -5,9 +5,9 @@ import unittest
 import fakes
 
 import config
-import palette
-import startup
-from display import DisplayManager
+from core import palette
+from gbox import startup
+from core.display import DisplayManager
 
 
 class FakeHw:

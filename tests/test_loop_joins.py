@@ -5,10 +5,10 @@ import unittest
 
 import fakes  # installs the CircuitPython fakes first
 
-import looper
-from event_types import PAD_DOWN, PAD_UP
-from looper import LooperMode
-from synth_engine import SynthEngine
+from gbox import looper
+from core.event_types import PAD_DOWN, PAD_UP
+from gbox.looper import LooperMode
+from core.synth_engine import SynthEngine
 
 STEP = 0.125      # 120 BPM sixteenths
 BASS_LAYER = 1    # melodic by default

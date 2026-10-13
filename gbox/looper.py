@@ -105,8 +105,8 @@ Snap-to-bar sync:
 import array
 import math
 
-import keymap
-from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, TICK
+from core import keymap
+from core.event_types import PAD_DOWN, PAD_UP, BTN_DOWN, TICK
 from config import (BTN_RECORD, BTN_MUTE,
                     MAX_LOOP_EVENTS, NUM_LOOP_LAYERS, NUM_PADS, STEPS_PER_BAR)
 

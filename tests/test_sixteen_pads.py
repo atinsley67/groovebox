@@ -11,14 +11,11 @@ import unittest
 import fakes  # installs the CircuitPython fakes first
 
 import config
-import groove
-import keymap
-import palette
-import sound_presets
-import synth_params
+from gbox import groove
+from core import keymap, palette, sound_presets, synth_params
 from config import BTN_MENU, BTN_INC, BTN_RECORD, BTN_MODE, BTN_PLAY_STOP, BTN_VIEW
 from harness import Harness, run
-from synth_engine import SynthEngine
+from core.synth_engine import SynthEngine
 
 KIT_LAYER  = 0
 BASS_LAYER = 1

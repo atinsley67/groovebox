@@ -11,14 +11,11 @@ import unittest
 import fakes  # installs the CircuitPython fakes first
 
 import config
-import groove
-import keymap
-import palette
-import scales
-import sound_presets
+from gbox import groove
+from core import keymap, palette, scales, sound_presets
 from config import BTN_MENU, BTN_INC, BTN_DEC, BTN_RECORD, BTN_VIEW
 from harness import Harness, run
-from synth_engine import SynthEngine
+from core.synth_engine import SynthEngine
 
 BASS_LAYER = 1
 KEY_ITEM   = 4   # KEY's place in the menu's root list; SCAL follows it
