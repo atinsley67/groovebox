@@ -43,11 +43,12 @@ the menu closed, UP / DOWN set the volume.
 The top 10
 ----------
 A score that makes the top 10 (game_scores.py, kept on the drive) gets a
-name. After the game-over sting the display shows its place ("#3"), then
-the name -- the last one entered, to start from -- with the letter being
-edited flashing: UP / DOWN change it (held, they run through the
-letters), MENU takes it and moves on, RECORD goes back one. After the
-fourth it's saved ("DONE"). The menu's TOP shows the board: each entry's
+name. After the game-over sting the display shows its place ("*03"),
+then the name -- the last one entered, to start from -- with the letter
+being edited flashing: UP / DOWN change it (held, they run
+through the letters), MENU takes it and moves on, RECORD goes back one.
+"_" is a blank, for a shorter name (saved as a space). After the fourth
+it's saved ("DONE"). The menu's TOP shows the board: each entry's
 place, name and score in turn; UP / DOWN go through them, MENU or RECORD
 back to the list.
 
@@ -57,9 +58,11 @@ The box has 2 bars (ME_STEPS) and so do you (YOU_STEPS). The count always
 fills the box's last 4 beats, the count-out yours. What changes is how
 much of the box's 2 bars the phrase fills (SHAPES): the gap before your
 turn shrinks from a whole bar (shape A) to 2 beats (B) to none (C), and
-the same gap follows your turn. The first time a shape appears, the round
-is a demo: the box plays your part too, on your voice, so you see the
-spacing before you play it.
+the same gap follows your turn. The game opens with a demo round: the box
+plays your part too, on your voice, so you see the spacing before you
+play it. The count-in says DEMO in place of GO, and the demo says GO over
+its last 2 beats, just before the real thing. (Later shapes get no demo:
+mid-game, one reads as a round to copy.)
 
 Judging
 -------
@@ -242,10 +245,10 @@ _VIEW_SWAP = 0.7    # seconds each of a top-10 entry's rank, name and score show
 # ── The name editor (a top-10 score) ──────────────────────────────────────────
 _NAME_KEYS = (config.BTN_INC, config.BTN_DEC, config.BTN_MENU, config.BTN_RECORD)
 _NAME_KEY_LIT     = palette.MENU_OPEN
-_NAME_BLINK_HZ    = 3.0    # the letter being edited, against "_"
+_NAME_BLINK_HZ    = 2.0    # the letter being edited, against empty
 _NAME_REPEAT_WAIT = 0.4    # UP / DOWN held this long start repeating...
 _NAME_REPEAT_GAP  = 0.12   # ...a letter every this long
-_RANK_HOLD        = 1.5    # "#3  " before the editor
+_RANK_HOLD        = 1.5    # "*03 " before the editor
 
 # ── Display ───────────────────────────────────────────────────────────────────
 _COUNT_IN_TEXT = ("  3 ", "  2 ", "  1 ", " GO ")
@@ -268,6 +271,12 @@ _AREA       = palette.scaled(palette.WHITE, 0.08)
 _AREA_PULSE = palette.scaled(palette.YELLOW, 0.4)
 _LIFE       = palette.scaled(palette.RED, 0.5)
 _OVER_KEYS  = palette.scaled(palette.RED, palette.DIM)
+
+
+def _rank_text(rank):
+    """A top-10 place (0 = the top) as shown: "*01 ". (Not "#": on the
+    14-segment display it looks like a B.)"""
+    return f"*{rank + 1:02d} "
 
 
 def _mix(a, b, share):
@@ -485,7 +494,6 @@ class Game:
         self._state  = TITLE
         self._stage  = 0
         self._row    = STAGES[0]
-        self._shape  = -1        # the shape last shown in a demo
         self._lives  = LIVES
         self._score  = 0
         self._reveal = 0         # notes in play this round (by rank)
@@ -526,7 +534,7 @@ class Game:
 
         # The name editor: letters as indexes into game_scores.CHARS, the
         # one being edited, and its two blink frames (the name, and the
-        # name with "_" for that letter), made only when they change.
+        # name with that letter empty), made only when they change.
         self._name       = bytearray(game_scores.NAME_LEN)
         self._name_pos   = 0
         self._name_texts = ("    ", "    ")
@@ -692,7 +700,7 @@ class Game:
             # Stays in the menu: RECORD comes back to the list.
             top = self._board["top"]
             self._view_texts = tuple(
-                (f"#{rank + 1:<3}", top[rank][0], f"{top[rank][1]:4d}")
+                (_rank_text(rank), top[rank][0], f"{top[rank][1]:4d}")
                 for rank in range(len(top)))
             self._viewing, self._view_item, self._view_at = True, 0, now
             return
@@ -715,7 +723,6 @@ class Game:
     def start(self, now):
         """A new game: the count-in, from `now`."""
         self._lives, self._score = LIVES, 0
-        self._shape     = -1
         for r in range(len(self._row_used)):
             self._row_used[r] = -1
         self._breakdown = False
@@ -738,8 +745,8 @@ class Game:
             self._flash_until[pad] = 0.0
 
     def _start_stage(self, stage):
-        """Set up `stage`: its tempo (from the next round), pads and phrase,
-        and a demo round first if its shape is new."""
+        """Set up `stage`: its tempo (from the next round), pads and phrase
+        -- and, for the first, the demo round that opens the game."""
         self._stage = stage
         self._row   = row = stage_row(stage)
         self._step_dur = 60.0 / (row[_BPM] * 4)
@@ -755,8 +762,9 @@ class Game:
         if row[_KEY] != self._key:
             self._key = row[_KEY]
             self._sound.set_tuning(self._key, scales.DEFAULT_SCALE)
-        self._demo   = row[_SHAPE] != self._shape
-        self._shape  = row[_SHAPE]
+        # Only the game's opening: a demo when a later stage's shape
+        # changes plays like any round, so it reads as one to copy.
+        self._demo = stage == 0
         top = row[_ROWS] * _ROW_PADS
         self._area = 0
         for pad in range(config.NUM_PADS):
@@ -887,7 +895,9 @@ class Game:
             self._beat_at = due
         if self._state == COUNT_IN:
             if step % 4 == 0:
-                self._base_text = _COUNT_IN_TEXT[step // 4]
+                beat = step // 4
+                # Into a demo round, not straight into play: "DEMO", not "GO".
+                self._base_text = "DEMO" if beat == 3 and self._demo else _COUNT_IN_TEXT[beat]
             return
 
         phrase = self._phrase
@@ -914,8 +924,11 @@ class Game:
                         self._demo_note(i, due)
             # The count-out: softly, leading back to the box's turn.
             count = you_step - (YOU_STEPS - COUNT_STEPS)
-            if count >= 0 and count % 4 == 0 and count // 4 >= self._clicks_from:
-                self._sound.trigger(_SOFT_WOOD)
+            if count >= 0 and count % 4 == 0:
+                if count // 4 >= self._clicks_from:
+                    self._sound.trigger(_SOFT_WOOD)
+                if self._demo and count >= 8:
+                    self._base_text = " GO "   # its last 2 beats: the real thing next
 
     def _backing(self, bar_step, due):
         sound  = self._sound
@@ -1106,16 +1119,22 @@ class Game:
         self._repeat   = 0
         self._name_at  = now
         self._name_changed()
-        self._flash(f"#{self._rank + 1:<3}", now, _RANK_HOLD)
+        self._flash(_rank_text(self._rank), now, _RANK_HOLD)
+
+    def _name_string(self):
+        """The name as it'll be saved (a blank is a space)."""
+        name = ""
+        for i in range(game_scores.NAME_LEN):
+            name += game_scores.CHARS[self._name[i]]
+        return name
 
     def _name_changed(self):
-        """Make the editor's two blink frames for the name as it stands."""
-        chars = game_scores.CHARS
-        name  = ""
-        for i in range(game_scores.NAME_LEN):
-            name += chars[self._name[i]]
-        pos = self._name_pos
-        self._name_texts = (name, name[:pos] + "_" + name[pos + 1:])
+        """Make the editor's two blink frames for the name as it stands: it
+        with blanks shown as "_" (so a 3-letter name can be entered, and
+        seen), and the same with the letter being edited empty."""
+        shown = self._name_string().replace(" ", "_")
+        pos   = self._name_pos
+        self._name_texts = (shown, shown[:pos] + " " + shown[pos + 1:])
 
     def _step_letter(self, step):
         pos = self._name_pos
@@ -1145,7 +1164,7 @@ class Game:
         """Put the score on the board and write it to the drive. Nothing is
         playing, so the write's stall goes unheard. If it fails, the score
         stays on this session's board and the display says why."""
-        game_scores.insert(self._board, self._rank, self._name_texts[0], self._score)
+        game_scores.insert(self._board, self._rank, self._name_string(), self._score)
         self._state, self._over_at, self._repeat = OVER, now, 0
         text = "DONE"
         if self._store:

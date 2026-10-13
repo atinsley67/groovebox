@@ -351,11 +351,37 @@ class ShapeTest(unittest.TestCase):
         sd = g.step_dur
         self.assertAlmostEqual(sd, 60 / (90 * 4))
         r.to(4 * sd * 3 + 0.001)
-        self.assertEqual(r.draw(), " GO ")
+        self.assertEqual(r.draw(), "DEMO")         # a demo comes first, not play
         r.next_section()
         self.assertEqual(g.state, game.PLAY)
         self.assertTrue(g.demo)
         self.assertEqual(g.reveal, 2)
+        r.wait(0.01)
+        self.assertEqual(r.draw(), "ME  ")         # no second DEMO: it just said so
+
+    def test_go_ends_the_demo(self):
+        r = Runner()
+        r.start()
+        r.next_section()
+        g = r.game
+        sd = g.step_dur
+        out = g.you_start + (YOU_STEPS - 16) * sd   # the count-out's first beat
+        texts = []
+        for beat in range(4):
+            r.to(out + 4 * beat * sd + 0.001)
+            texts.append(r.draw())
+        self.assertEqual(texts, ["YOU ", "YOU ", " GO ", " GO "])
+        r.next_section()
+        self.assertFalse(g.demo)
+        r.wait(0.01)
+        self.assertEqual(r.draw(), "ME  ")
+
+    def test_no_demo_counts_in_with_go(self):
+        r = Runner()
+        r.jump_to_stage(0)                          # no demo
+        r.to(12 * r.game.step_dur + 0.001)
+        self.assertEqual(r.draw(), " GO ")
+
 
     def test_every_round_is_four_bars_and_the_count_is_before_your_turn(self):
         r = Runner()
@@ -513,7 +539,9 @@ class DemoTest(unittest.TestCase):
         self.assertFalse(g.demo)
         self.assertEqual(g.reveal, 2)        # the same notes, for real now
 
-    def test_a_demo_for_each_new_shape(self):
+    def test_only_the_opening_is_a_demo(self):
+        """Not when a later stage brings a new shape: mid-game, a demo
+        reads as a round to copy (it was, on the device)."""
         r = Runner(dt=0.004)
         r.start()
         r.next_section()
@@ -523,8 +551,9 @@ class DemoTest(unittest.TestCase):
             demos.setdefault(g.stage, g.demo)
             r.clear_stage()
         demos[g.stage] = g.demo
-        self.assertEqual([stage for stage, demo in sorted(demos.items()) if demo],
-                         [_SHAPE_A, _SHAPE_B, _SHAPE_C])
+        self.assertEqual([stage for stage, demo in sorted(demos.items()) if demo], [0])
+        self.assertIn(_SHAPE_B, demos)
+        self.assertIn(_SHAPE_C, demos)
 
     def test_a_restart_starts_with_a_demo(self):
         r = Runner()
@@ -912,14 +941,14 @@ class LeaderboardTest(unittest.TestCase):
         self.bust(r, 600)
         g = r.game
         self.assertEqual(g.state, game.NAME)
-        self.assertEqual(r.draw(), "#2  ")                 # where it placed
+        self.assertEqual(r.draw(), "*02 ")                 # where it placed
         r.wait(game._RANK_HOLD + 0.01)
         # The last name entered, its first letter flashing.
         frames = set()
         for _ in range(8):
             frames.add(r.draw())
             r.wait(0.05)
-        self.assertEqual(frames, {"ALEX", "_LEX"})
+        self.assertEqual(frames, {"ALEX", " LEX"})
         lit = {b for b, color in r.disp.keys.items() if color != palette.OFF}
         self.assertEqual(lit, set(game._NAME_KEYS))
         r.button(BTN_INC)                                  # A -> B
@@ -943,7 +972,7 @@ class LeaderboardTest(unittest.TestCase):
         r = self.runner(FakeStore(_board(last="AAAA")))
         self.bust(r, 50)
         r.button(BTN_DEC)                                  # A wraps to space
-        self.assertEqual(r.game._name_texts[0], " AAA")
+        self.assertEqual(r.game._name_texts[0], "_AAA")
         r.down(BTN_INC)                                    # space -> A, then held...
         # ...repeats at the wait, then every gap: 5 of them.
         r.wait(game._NAME_REPEAT_WAIT + 4 * game._NAME_REPEAT_GAP + 0.01)
@@ -952,6 +981,24 @@ class LeaderboardTest(unittest.TestCase):
         self.assertEqual(letter, "F")                      # A, then 5 repeats
         r.wait(1.0)
         self.assertEqual(r.game._name_texts[0][0], "F")    # stopped on release
+
+    def test_a_three_letter_name(self):
+        """The blank shows as "_" while editing, and saves as a space."""
+        store = FakeStore(_board(last="ALEX"))
+        r = self.runner(store)
+        self.bust(r, 300)
+        for _ in range(3):
+            r.button(BTN_MENU)                             # A, L, E as they are
+        r.button(BTN_DEC)                                  # X -> W ...
+        while r.game._name_texts[0][3] != "_":
+            r.button(BTN_INC)                              # ... round to the blank
+        self.assertEqual(r.game._name_texts, ("ALE_", "ALE "))   # blinks to empty
+        r.button(BTN_MENU)
+        self.assertEqual(store.saved[-1][0], ["ALE ", 300])
+        r.button(BTN_MENU)
+        r.button(BTN_MENU)                                 # TOP
+        r.wait(game._VIEW_SWAP + 0.01)
+        self.assertEqual(r.draw(), "ALE ")
 
     def test_record_on_the_first_letter_stays(self):
         r = self.runner(FakeStore())
@@ -998,13 +1045,13 @@ class LeaderboardTest(unittest.TestCase):
         for _ in range(3):
             shown.append(r.draw())
             r.wait(game._VIEW_SWAP)
-        self.assertEqual(shown, ["#1  ", "P0  ", " 900"])
+        self.assertEqual(shown, ["*01 ", "P0  ", " 900"])
         r.button(BTN_INC)
-        self.assertEqual(r.draw(), "#2  ")
+        self.assertEqual(r.draw(), "*02 ")
         r.wait(game._VIEW_SWAP * 2 + 0.01)
         self.assertEqual(r.draw(), " 500")
         r.button(BTN_INC)                                  # wraps
-        self.assertEqual(r.draw(), "#1  ")
+        self.assertEqual(r.draw(), "*01 ")
         r.button(BTN_RECORD)                               # back to the list
         self.assertEqual(r.draw(), "TOP ")
         r.button(BTN_RECORD)                               # and out
