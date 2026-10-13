@@ -2,6 +2,7 @@
 .venv/
 __pycache__/
 *.pyc
+.vscode/
 
 # Personal Claude Code permissions
 .claude/settings.local.json
