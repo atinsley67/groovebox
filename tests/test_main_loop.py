@@ -1,5 +1,5 @@
 """
-End-to-end scenarios through the real code.py main loop (see harness.py):
+End-to-end scenarios through the real groovebox.py main loop (see harness.py):
 the list menu (reopening on the last item; SURE before EXT / MIRR), pads
 staying live under it, RECORD as its back key, MUTE working and CLEAR
 flashing MENU in it, the BPM item and tempo lock, UP/DOWN channel volume,
@@ -11,7 +11,7 @@ import unittest
 
 import fakes  # installs the CircuitPython fakes first
 
-import palette
+from core import palette
 from harness import Harness, run
 from config import (BTN_MENU, BTN_PLAY_STOP, BTN_INC, BTN_DEC, BTN_RECORD,
                     BTN_MUTE, BTN_MODE, BTN_VIEW, BTN_CLEAR, NUM_LOOP_LAYERS)

@@ -8,10 +8,10 @@ import fakes  # noqa: F401  (installs the CircuitPython fakes first)
 
 import config
 import harness
-import palette
-import timing_probe
+from core import palette
+from tools import timing_probe
 from config import BTN_MENU, BTN_KEY_MODE
-from timing_probe import TimingProbe, census
+from tools.timing_probe import TimingProbe, census
 
 MS = 1000000
 

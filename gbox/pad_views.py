@@ -1,5 +1,5 @@
 """
-The pad views: each draws a color per pad from a mode's state, for code.py
+The pad views: each draws a color per pad from a mode's state, for groovebox.py
 to send (DisplayManager.set_pad_frame). VIEW switches between the active
 mode's own view and the channel view; colors come from palette.py, and
 are a starting point to tune on the device.
@@ -12,7 +12,7 @@ frame() runs up to ~60 times a second, so none of them allocate: each
 fills one reused list from colors built at import (or construction).
 """
 
-import palette
+from core import palette
 from config import NUM_LOOP_LAYERS, NUM_PADS, NUM_TRACKS, STEPS_PER_BAR
 
 
@@ -99,7 +99,7 @@ _BLINK_HZ = 2.5   # armed / counting-in blink rate
 
 class ChannelView:
     """Every channel's state, loop layers 1-8 on pads 0-7 (the top two
-    rows) and sequencer tracks 1-8 on pads 8-15 (the bottom two). code.py
+    rows) and sequencer tracks 1-8 on pads 8-15 (the bottom two). groovebox.py
     handles the taps (KEY MODE select / mute). The selected channel isn't
     marked: a pulse there hid its own activity.
       empty                        off

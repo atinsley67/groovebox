@@ -16,7 +16,7 @@ the bass voices already sit near the bottom of hearing at A, and the top
 pad of the highest voices needs to stay under synthio's ~11 kHz ceiling.
 """
 
-import keymap
+from core import keymap
 
 # (4-char label, semitones from the root within one octave)
 SCALES = (

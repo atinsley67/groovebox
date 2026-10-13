@@ -1,5 +1,5 @@
 """The arpeggiator (arp.py): its patterns and timing on its own, the
-looper's exact presses, and the whole path through code.py -- KEY MODE,
+looper's exact presses, and the whole path through groovebox.py -- KEY MODE,
 the ARP menu item, and arp takes recorded on the grid."""
 
 import random
@@ -7,15 +7,15 @@ import unittest
 
 import fakes  # noqa: F401  (installs the CircuitPython fakes first)
 
-import looper
-import palette
-from arp import Arpeggiator
+from gbox import looper
+from core import palette
+from gbox.arp import Arpeggiator
 from config import (BTN_MENU, BTN_INC, BTN_RECORD, BTN_MODE, BTN_PLAY_STOP,
                     BTN_VIEW, BTN_KEY_MODE, NUM_LOOP_LAYERS)
-from event_types import PAD_DOWN, PAD_UP
+from core.event_types import PAD_DOWN, PAD_UP
 from harness import FRAME, run
-from looper import LooperMode
-from synth_engine import SynthEngine
+from gbox.looper import LooperMode
+from core.synth_engine import SynthEngine
 
 STEP = 0.125            # 120 BPM sixteenths
 BASS_LAYER = 1          # melodic by default
@@ -242,7 +242,7 @@ class ExactPressTest(unittest.TestCase):
         self.assertEqual(fakes.notes(loop._layers[BASS_LAYER].events), [(0.0, LOW)])
 
 
-# ── Through code.py ───────────────────────────────────────────────────────────
+# ── Through groovebox.py ──────────────────────────────────────────────────────
 
 def wait_until(h, condition, timeout=10.0):
     end = h.t + timeout

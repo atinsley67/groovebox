@@ -1,7 +1,7 @@
 """
 AUTO, the mute arranger: varies the groove by muting and unmuting channels
 on its own, on phrase boundaries -- mostly small changes, now and then a
-breakdown and a drop. The menu's AUT item switches it on and off; code.py
+breakdown and a drop. The menu's AUT item switches it on and off; groovebox.py
 feeds it the phrase clock (on_unit) and flashes the word it returns.
 
 Channels are the channel view's: loop layers 0-7, then sequencer tracks as

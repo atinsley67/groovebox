@@ -1,5 +1,6 @@
 """
-Runs the real code.py main loop against scripted key presses.
+Runs the real groovebox main loop (groovebox.main) against scripted key
+presses.
 
 A scenario is a generator function taking the Harness. It presses and
 releases buttons/pads and yields how many seconds to let the main loop run
@@ -18,37 +19,31 @@ queue them; the real hw.Hardware turns them into events. The LEDs are the
 fake NeoPixel strips (see pad_color / key_color).
 
 Time is fake (tests/fakes.py): every main-loop pass is one FRAME of it, so
-runs are deterministic and much faster than real time. The instances
-code.py builds (hw, synth, looper, seq, menu, disp, arp) are captured for
+runs are deterministic and much faster than real time. The instances the
+groovebox builds (hw, synth, looper, seq, menu, disp, arp) are captured for
 inspection.
 """
 
 import importlib.util
 import os
-import sys
 import tempfile
-import time
 
 import fakes
 
-import arp
+from gbox import arp
 import config
-import display
-import groove
-import hw
-import keymap
-import looper
-import menu
-import sequencer
-import startup
-import synth_engine
+from core import display
+from gbox import groove
+from core import hw, keymap
+from gbox import looper, menu, sequencer, startup
+from core import synth_engine
 
 FRAME = 0.001   # seconds of fake time per main-loop pass
 
 
 class _StopHarness(BaseException):
-    """Ends main()'s `while True`. A BaseException, so code.py's own
-    `except Exception` crash handler doesn't catch it."""
+    """Ends main()'s `while True`. A BaseException, so nothing on the way
+    out can catch it as an error."""
 
 
 class Harness:
@@ -121,7 +116,7 @@ class Harness:
         self.pad_up(pad)
         yield after
 
-    # ── What code.py's instances show ─────────────────────────────────────────
+    # ── What the groovebox's instances show ───────────────────────────────────
 
     @property
     def text(self):
@@ -186,14 +181,7 @@ class Harness:
                     setattr(harness, attr, self)
             return Recorded
 
-        def crashed(_seconds):
-            # code.py's crash handler prints the traceback then sleeps
-            # forever; surface the exception it caught instead.
-            harness._error = sys.exc_info()[1]
-            raise _StopHarness()
-
         patches = [
-            (hw, "Hardware", ScriptedHardware),
             (synth_engine, "SynthEngine", recording(synth_engine.SynthEngine, "synth")),
             (looper, "LooperMode", recording(looper.LooperMode, "looper")),
             (sequencer, "SequencerMode", recording(sequencer.SequencerMode, "seq")),
@@ -202,17 +190,19 @@ class Harness:
             (arp, "Arpeggiator", recording(arp.Arpeggiator, "arp")),
             (startup, "run", lambda hw, disp: None),
             (groove, "_DIR", self.groove_dir),
-            (time, "sleep", crashed),
         ]
         saved = [(mod, name, getattr(mod, name)) for mod, name, _ in patches]
         for mod, name, value in patches:
             setattr(mod, name, value)
         try:
-            path = os.path.join(fakes.ROOT, "code.py")
-            spec = importlib.util.spec_from_file_location("groovebox_code", path)
+            # A fresh copy of the module every run, so its `from x import y`
+            # names bind to the patches above.
+            path = fakes.source("groovebox.py")
+            spec = importlib.util.spec_from_file_location("groovebox_run", path)
             module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
             try:
-                spec.loader.exec_module(module)
+                module.main(ScriptedHardware())
             except _StopHarness:
                 pass
         finally:

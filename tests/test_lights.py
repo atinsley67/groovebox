@@ -8,7 +8,7 @@ import unittest
 
 import fakes  # noqa: F401  (installs the CircuitPython fakes first)
 
-import palette
+from core import palette
 from config import (BTN_MENU, BTN_PLAY_STOP, BTN_RECORD, BTN_MUTE, BTN_MODE,
                     BTN_INC, BTN_DEC, BTN_VIEW, BTN_KEY_MODE, BTN_CLEAR)
 from harness import run

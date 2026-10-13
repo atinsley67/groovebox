@@ -85,7 +85,7 @@ Comment the line back out to return to the app.
 | `KEY_SCAN_INTERVAL` | Time between key scans (4 ms). Lower is snappier but less tolerant of switch bounce |
 | `KEY_TIME_ADJUST` | Shifts recorded presses earlier to cover the scan delay. Follows from the two settings above |
 | `PIXEL_BRIGHTNESS` | Overall pixel brightness cap (USB power budget) |
-| `palette.py` | The key colours, and `DIM`, the "state" brightness level |
+| `core/palette.py` | The key colours, and `DIM`, the "state" brightness level |
 | `I2C_FREQUENCY` | 400 kHz. Set to 100000 if the display glitches |
 
 ## Troubleshooting
@@ -97,6 +97,6 @@ Comment the line back out to return to the app.
 
 ## Timing
 
-`config.TIMING_PROBE = True` prints main-loop timing to the serial console every 5 s; [`timing_probe.py`](../timing_probe.py) explains each field. It also prints a `HEAP` line at each stage of boot and after a groove loads: memory in use and how long a garbage collection takes at that point, so a slow collection can be traced to code, sound tables, voices or recorded loops.
+`config.TIMING_PROBE = True` prints main-loop timing to the serial console every 5 s; [`tools/timing_probe.py`](../tools/timing_probe.py) explains each field. It also prints a `HEAP` line at each stage of boot and after a groove loads: memory in use and how long a garbage collection takes at that point, so a slow collection can be traced to code, sound tables, voices or recorded loops.
 
 Read its GC times as relative, not absolute: the probe's own bookkeeping can make collections slower than they are with it off.

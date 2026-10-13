@@ -11,8 +11,7 @@ blocks the main loop, and LED changes can come many times a frame.
 import neopixel
 
 import config
-import keymap
-import palette
+from core import keymap, palette
 
 _PUSH_INTERVAL = 1 / 60   # seconds: at most ~60 sends per second per strip
 

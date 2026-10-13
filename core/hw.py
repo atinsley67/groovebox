@@ -22,14 +22,17 @@ scan() allocates nothing when no key has changed (the common case): one
 reused keypad.Event, and the clock is only read when there's an event.
 """
 
+import time
+
 import busio
+import digitalio
 import keypad
 import supervisor
 
-import clock
+from core import clock
 import config
-import keymap
-from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, BTN_UP
+from core import keymap
+from core.event_types import PAD_DOWN, PAD_UP, BTN_DOWN, BTN_UP
 
 _TICKS_PERIOD = 1 << 29
 _TICKS_MAX    = _TICKS_PERIOD - 1
@@ -46,6 +49,32 @@ def _ticks_diff(ticks1, ticks2):
 
 def _event_time(event):
     return event[2]
+
+
+def held_at_startup(button):
+    """True if function key `button` is down right now, read straight off
+    its two matrix lines -- so call it before Hardware() claims them.
+    keypad doesn't report a key that's already down when it starts (seen
+    on the device), so a key held through power-up can't be found from
+    scan()'s events.
+
+    The function block's key number k sits on config's anode line
+    k % len(FUNC_ROW_PINS) and cathode line k // len(FUNC_ROW_PINS) (see
+    _matrix and the module docstring). Like keypad, drive the cathode low
+    and pull the anode up: the key's diode pulls the anode low when it's
+    pressed."""
+    key   = keymap.BUTTON_OF_KEY.index(button)
+    lines = len(config.FUNC_ROW_PINS)
+    anode   = digitalio.DigitalInOut(config.FUNC_ROW_PINS[key % lines])
+    cathode = digitalio.DigitalInOut(config.FUNC_COL_PINS[key // lines])
+    try:
+        anode.switch_to_input(pull=digitalio.Pull.UP)
+        cathode.switch_to_output(value=False)
+        time.sleep(0.001)   # let the line settle
+        return not anode.value
+    finally:
+        anode.deinit()
+        cathode.deinit()
 
 
 def _matrix(rows, cols):

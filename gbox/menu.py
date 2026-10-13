@@ -11,11 +11,11 @@ switching LOOP<->SEQ, while it's open retargets it on the fly.
 It owns only the 4-char text and these keys:
   MENU       : select -- enter the highlighted item / edit the value / run
                the action
-  RECORD     : back (cancel in ASSIGN); at root, close the menu -- code.py
+  RECORD     : back (cancel in ASSIGN); at root, close the menu -- groovebox.py
                routes it here via back()
   UP/DOWN    : move the highlight, or step the value while editing (held =
                auto-repeat)
-Everything else stays with code.py and the active mode: LOOP/SEQ and a
+Everything else stays with groovebox.py and the active mode: LOOP/SEQ and a
 channel-view select retarget the menu, PLAY/STOP stays the transport, the
 pads keep playing the active mode (which keeps the LEDs), MUTE stays the
 active mode's, and CLEAR just flashes MENU while the menu is open.
@@ -52,10 +52,10 @@ ARP (LOOP only): the active layer's arpeggiator settings (arp.SCHEMA:
   MODE, RATE, GATE), a list like SOUND's without RST -- MENU on one edits
   it (UP/DOWN cycle its value) until MENU or RECORD returns to the list.
   Follows the active layer; leaving LOOP mode returns to root. KEY MODE
-  (code.py) switches the arp itself on and off.
+  (groovebox.py) switches the arp itself on and off.
 
-BPM: MENU edits the tempo, shown as "b120" (code.py's set_bpm, so the clock
-  re-anchors without a jump). While code.py's tempo_locked() holds, it
+BPM: MENU edits the tempo, shown as "b120" (groovebox.py's set_bpm, so the clock
+  re-anchors without a jump). While groovebox.py's tempo_locked() holds, it
   flashes LOCK and the value can't change. MENU or RECORD returns.
 
 KEY / SCALE (either mode): MENU edits every melodic layer's key ("A   ",
@@ -71,23 +71,22 @@ EXTEND / MIRROR (LOOP only): run in place from root -- see
 SAVE / LOAD (either mode): pick one of groove.NUM_SLOTS slots. The label is
   S or L, the two-digit slot number, and "*" if the slot holds a groove:
   "S03*" saves over slot 3, "S03 " saves to an empty slot 3, "L03*" loads
-  slot 3. MENU saves / loads; when it works the menu closes (code.py's
+  slot 3. MENU saves / loads; when it works the menu closes (groovebox.py's
   file_done shows DONE over the mode), straight back to playing. A failure
   ("RO  ", "FULL", "ERR ") flashes and stays on the slot list to try
   another; MENU on an empty LOAD slot just flashes "N/A ". Loading
   replaces the whole session and stops the transport.
-  Both stop playback first (code.py's stop_playback, which fades out
+  Both stop playback first (groovebox.py's stop_playback, which fades out
   everything sounding) and do the file work _FILE_FADE later, once it's
   silent: the work stalls the main loop for up to ~0.6 s, and anything
   still playing through that would click. Keys wait until it's done.
 """
 
-import arp as arp_settings
-import clock
-import groove
-import scales
-import synth_params
-from event_types import BTN_DOWN, BTN_UP
+from gbox import arp as arp_settings
+from core import clock
+from gbox import groove
+from core import scales, synth_params
+from core.event_types import BTN_DOWN, BTN_UP
 from config import BTN_INC, BTN_DEC, BTN_MENU
 
 _REPEAT_DELAY    = 0.4   # seconds UP/DOWN must be held before auto-repeat starts
@@ -131,8 +130,8 @@ class MenuMode:
         self._looper          = looper
         self._seq             = seq
         self._get_active_mode = get_active_mode
-        # code.py callbacks: capture_groove() -> dict; apply_groove(dict, now);
-        # get_bpm() -> int; set_bpm(int); tempo_locked() -> bool;
+        # groovebox.py callbacks: capture_groove() -> dict;
+        # apply_groove(dict, now); get_bpm() -> int; set_bpm(int); tempo_locked() -> bool;
         # stop_playback(now): stop and fade out, before SAVE / LOAD;
         # file_done(text): a SAVE / LOAD worked -- close the menu, show text
         self._capture_groove  = capture_groove
@@ -263,7 +262,7 @@ class MenuMode:
             self._refresh_display()
 
     def refresh_display(self):
-        """Called by code.py after anything that may have retargeted the
+        """Called by groovebox.py after anything that may have retargeted the
         menu (layer/track changes, LOOP<->SEQ switches)."""
         if self._root_confirm and not self._loop_active():
             self._root_confirm = False   # EXTEND / MIRROR are loop-only
@@ -487,9 +486,10 @@ class MenuMode:
             self._assign_original = None
 
     def _sync_assign_target(self):
-        """ASSIGN follows the active layer: a layer change (the channel view, handled by
-        code.py) keeps the old layer's pending choice and starts over on the
-        new one; leaving LOOP mode keeps it and returns to root."""
+        """ASSIGN follows the active layer: a layer change (the channel
+        view, handled by groovebox.py) keeps the old layer's pending choice
+        and starts over on the new one; leaving LOOP mode keeps it and
+        returns to root."""
         if self._section != _ASSIGN:
             return
         if not self._loop_active():
@@ -528,8 +528,8 @@ class MenuMode:
         self._file_at     = now + _FILE_FADE
 
     def _run_file_action(self, now, closing=False):
-        """Do the waiting SAVE / LOAD. Done: back to root and code.py closes
-        the menu (unless it's closing already). Failed: flash why, and stay
+        """Do the waiting SAVE / LOAD. Done: back to root and groovebox.py
+        closes the menu (unless it's closing already). Failed: flash why, and stay
         on the slot list to try another."""
         action = self._file_action
         self._file_action = None

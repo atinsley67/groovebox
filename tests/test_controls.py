@@ -7,8 +7,8 @@ import unittest
 
 import fakes  # installs the CircuitPython fakes first
 
-import palette
-from pad_views import ChannelView
+from core import palette
+from gbox.pad_views import ChannelView
 from config import (BTN_MENU, BTN_PLAY_STOP, BTN_RECORD, BTN_MUTE, BTN_MODE,
                     BTN_VIEW, BTN_KEY_MODE, BTN_CLEAR, NUM_LOOP_LAYERS)
 from harness import run

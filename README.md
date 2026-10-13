@@ -2,6 +2,8 @@
 
 A groovebox built on a Raspberry Pi Pico 2 W running CircuitPython. It has a live looper, a step sequencer, an arpeggiator and a synth with 16 instruments. You play it on a 4x4 grid of light-up mechanical keys and drive it from ten function keys and a 4-character display.
 
+I designed the instrument and built the hardware; the code was written by Claude Code, an AI coding agent, working from plans we developed together. [How this was built](#how-this-was-built) has the details.
+
 <!-- Photo of the build goes here, e.g.:
 ![The groovebox](docs/images/groovebox.jpg)
 -->
@@ -18,6 +20,7 @@ A groovebox built on a Raspberry Pi Pico 2 W running CircuitPython. It has a liv
 - **AUTO:** an arranger that mutes and unmutes channels on phrase boundaries, with occasional breakdowns and drops.
 - **16 save slots** for whole grooves, stored as JSON on the Pico's drive.
 - **Lights:** each colour means the same thing everywhere (red recording, yellow your playing, blue content, grey muted, white the playhead).
+- **Psst:** try holding MENU while it starts up.
 
 ## Building one
 
@@ -27,12 +30,12 @@ A groovebox built on a Raspberry Pi Pico 2 W running CircuitPython. It has a liv
 
 1. **Install CircuitPython 10.x:** download the UF2 for the [Pico 2 W](https://circuitpython.org/board/raspberry_pi_pico2_w/), hold BOOTSEL while plugging the Pico in, and drag the UF2 onto the drive that appears. It reboots as `CIRCUITPY`.
 2. **Add the libraries:** from the [CircuitPython 10.x library bundle](https://circuitpython.org/libraries), copy `adafruit_ht16k33/`, `adafruit_bus_device/` and `neopixel.mpy` into `CIRCUITPY/lib/`.
-3. **Copy the code:** every `.py` file in the root of this repo goes in the root of `CIRCUITPY`. Don't copy `tests/` or `docs/`.
+3. **Copy the code:** `code.py`, `boot.py` and `config.py`, and the `core/`, `gbox/`, `echo/` and `tools/` folders, go in the root of `CIRCUITPY`. Don't copy `tests/` or `docs/`.
 4. **Reset the Pico.** A rainbow wave and a scrolling `GROOVEBOX` mean it's working. If nothing lights, open the serial console; the startup error is printed there.
 
 **Updating the code later:** `boot.py` makes the drive writable by the groovebox (so it can save grooves), which makes it **read-only to your computer**. To copy new files over, press BOOTSEL during startup to boot into safe mode, where `boot.py` doesn't run.
 
-If your wiring differs from mine, change the pins and layout tables in [`config.py`](config.py). [docs/HARDWARE.md](docs/HARDWARE.md#calibrating-the-layout) explains how to find the right values with `io_test.py`.
+If your wiring differs from mine, change the pins and layout tables in [`config.py`](config.py). [docs/HARDWARE.md](docs/HARDWARE.md#calibrating-the-layout) explains how to find the right values with `tools/io_test.py`.
 
 ## Playing it
 
@@ -46,26 +49,33 @@ If your wiring differs from mine, change the pins and layout tables in [`config.
 
 ## How the code fits together
 
+The code is in packages, imported through them (`from core import clock`); only the startup files and `config.py` sit at the top.
+
 | File | Does |
 |---|---|
 | `boot.py` | Makes the drive writable by the code, for groove saves |
-| `code.py` | The main loop: scans keys, runs the clock, routes events to the modes, menu and views, drives the lights |
+| `code.py` | Startup: picks which program to run |
 | `config.py` | Pins, key and pixel layout tables, tuning and sizes |
+| **`gbox/`** | **The groovebox** |
+| `groovebox.py` | The main loop: scans keys, runs the clock, routes events to the modes, menu and views, drives the lights |
 | `looper.py` | The 8-layer looper: recording, overdub, sync to the sequencer, playback |
 | `sequencer.py` | The 8-track × 16-step sequencer |
 | `arp.py` | The arpeggiator, an input effect in front of the looper |
 | `arranger.py` | AUTO, the mute arranger |
 | `menu.py` | The settings menu: sounds, instruments, ARP, BPM, key and scale, loop length, save and load |
+| `groove.py` | Groove files on the drive (SAVE / LOAD) |
+| `pad_views.py` | What the pads show |
+| `startup.py` | The startup animation |
+| **`core/`** | **The hardware and the sound, shared** |
 | `synth_engine.py` | The synthio voices: triggering, per-channel instruments, sound parameters, volumes |
 | `sound_presets.py` | The drum kit and the melodic instruments |
 | `synth_params.py` | The editable sound parameters, their ranges and display names |
 | `scales.py` | The keys and scales |
-| `groove.py` | Groove files on the drive (SAVE / LOAD) |
-| `pad_views.py`, `palette.py` | What the pads show, and the colours |
+| `palette.py` | The colours |
 | `display.py`, `pixels.py` | The 4-character display and the key NeoPixels |
 | `hw.py`, `keymap.py` | Key scanning, and the lookups built from config's layout tables |
 | `clock.py`, `event_types.py` | The shared timebase and event names |
-| `startup.py` | The startup animation |
+| **`tools/`** | **Diagnostics** |
 | `io_test.py` | Hardware test and layout calibration (enabled from `code.py`) |
 | `timing_probe.py` | Main-loop timing and heap reports (`config.TIMING_PROBE`) |
 
@@ -75,7 +85,7 @@ CircuitPython can't refill the audio buffer during a garbage collection. If a co
 
 ## Running the tests
 
-The tests run on a desktop, with no hardware. `tests/fakes.py` stands in for the CircuitPython modules, and `tests/harness.py` runs the real `code.py` main loop against scripted key presses. They need only the Python standard library (3.11 is what I use). From the repo root:
+The tests run on a desktop, with no hardware. `tests/fakes.py` stands in for the CircuitPython modules, and `tests/harness.py` runs the real `gbox/groovebox.py` main loop against scripted key presses. They need only the Python standard library (3.11 is what I use). From the repo root:
 
 ```
 python -m unittest discover -s tests
@@ -88,6 +98,14 @@ python -m venv .venv
 .venv/Scripts/activate        # Windows; on macOS/Linux: source .venv/bin/activate
 pip install -r requirements-dev.txt
 ```
+
+## How this was built
+
+I designed the instrument and built the hardware. [Claude Code](https://claude.com/claude-code), Anthropic's AI coding agent, wrote the code. Each feature started as a written plan that we went back and forth on, covering how it should work, how it should feel to play and where it fits on the keys. Then it was built in stages, and I tested each stage on the device before the next. Plenty of designs changed or were dropped once I'd played them.
+
+A notable problem was audio clicks. They turned out to be garbage collection: CircuitPython can't refill the audio buffer while it collects, so any collection that runs long is audible. Claude Code did most of the investigation with some thought and input from me. It built `timing_probe.py` to measure main-loop and collection times on the device, and traced the clicks to two causes. First, the main loop was making garbage on every pass: one innocent-looking `x in (A, B)` test made 128 bytes of it per pass. Second, long lists of recorded notes made every collection about twice as slow. The fixes are the allocation-free main loop and flat arrays described under [the one rule](#the-one-rule-keep-the-main-loop-allocation-free).
+
+What made it possible to keep adding features was the test suite, which Claude Code built. `tests/harness.py` runs the real `gbox/groovebox.py` main loop on a desktop against fake keys, lights, display and audio, with scripted key presses and deterministic fake time. New features came with test scenarios of their own, and the whole suite (398 tests, about 5 seconds) ran before changes went onto the Pico. That's how the arpeggiator, key and scale, and AUTO went in without breaking the looper and sequencer underneath them. The suite can't hear the audio or measure timing on the real hardware, so testing on the device still had the last word.
 
 ## Current limitations
 

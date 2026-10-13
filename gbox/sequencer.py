@@ -6,7 +6,7 @@ UI interaction:
                  by row from the top left). Toggling also previews the sound.
   - RECORD      : nothing (free for a later use)
   - MUTE        : mute / unmute selected track
-  - Handled by code.py: LOOP/SEQ, PLAY/STOP (calls set_playing()), UP/DOWN
+  - Handled by groovebox.py: LOOP/SEQ, PLAY/STOP (calls set_playing()), UP/DOWN
     (the selected track's volume), CLEAR (clear_track() / clear_all()),
     and choosing a track in the channel view (select_channel(),
     toggle_mute()).
@@ -16,7 +16,7 @@ Pad lights: the selected track's steps and the playhead
 (pad_views.StepView).
 """
 
-from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, TICK
+from core.event_types import PAD_DOWN, PAD_UP, BTN_DOWN, TICK
 from config import BTN_MUTE, STEPS_PER_BAR, NUM_TRACKS, DEFAULT_BPM
 
 
@@ -37,17 +37,17 @@ class SequencerMode:
         # channel view's activity flash.
         self._played_at = [-1.0] * NUM_TRACKS
 
-        # 16th-note duration in seconds. code.py owns tempo (BPM) and keeps
+        # 16th-note duration in seconds. groovebox.py owns tempo (BPM) and keeps
         # this in sync whenever it changes; kept here (rather than a
         # standalone clock object) since it's already the step-grid
         # authority other modes read (see current_step). Default matches
-        # code.py's own initial step_dur so it's sane even before the first
+        # groovebox.py's own initial step_dur so it's sane even before the first
         # explicit sync.
         self._step_dur = 60.0 / (DEFAULT_BPM * 4)
 
         # Ownership must be explicitly claimed via enter()/set_display_owner
-        # -- never assumed at construction, since code.py only ever hands it
-        # off explicitly and a mode that's never had focus should never be
+        # -- never assumed at construction, since groovebox.py only ever
+        # hands it off explicitly and a mode that's never had focus should never be
         # able to paint over the shared display on a background event (e.g.
         # a TICK dispatched to it while the other mode has focus).
         self._is_display_owner = False
@@ -102,7 +102,7 @@ class SequencerMode:
     def refresh_display(self):
         self._refresh_display()
 
-    # ── Channels (called by code.py for the channel view and CLEAR) ───────────
+    # ── Channels (called by groovebox.py for the channel view and CLEAR) ──────
 
     def select_channel(self, n):
         if 0 <= n < NUM_TRACKS:
@@ -147,10 +147,10 @@ class SequencerMode:
         self._muted_tracks &= ~(1 << track)
         self._refresh_display()
 
-    # ── Global transport (called externally by code.py's PLAY/STOP) ───────────
+    # ── Global transport (called externally by groovebox.py's PLAY/STOP) ──────
 
     def set_playing(self, playing):
-        """Doesn't touch current_step itself -- code.py's own clock resets
+        """Doesn't touch current_step itself -- groovebox.py's own clock resets
         its step counter to 0 on resume (see its "Drive tempo clock"
         section) and that reaches current_step via the next TICK, same as
         any other step."""
@@ -164,7 +164,7 @@ class SequencerMode:
         self._muted_tracks = 0
         self._refresh_display()
 
-    # ── Grooves (called by code.py for the menu's SAVE / LOAD) ────────────────
+    # ── Grooves (called by groovebox.py for the menu's SAVE / LOAD) ───────────
 
     def snapshot(self):
         """Pattern and mutes as plain data: one step bitmask per track."""

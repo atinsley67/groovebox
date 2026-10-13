@@ -105,8 +105,8 @@ Snap-to-bar sync:
 import array
 import math
 
-import keymap
-from event_types import PAD_DOWN, PAD_UP, BTN_DOWN, TICK
+from core import keymap
+from core.event_types import PAD_DOWN, PAD_UP, BTN_DOWN, TICK
 from config import (BTN_RECORD, BTN_MUTE,
                     MAX_LOOP_EVENTS, NUM_LOOP_LAYERS, NUM_PADS, STEPS_PER_BAR)
 
@@ -344,7 +344,7 @@ class LooperMode:
         # the bar -- and so the take -- starts (count_in_start).
         self._countdown_tick = (0.0, 0)
 
-        # Global transport pause (driven externally by code.py's PLAY/STOP;
+        # Global transport pause (driven externally by groovebox.py's PLAY/STOP;
         # freezes every wall-clock-anchored timestamp rather than the loop
         # quietly continuing in the background while paused). Starts
         # stopped, so a layer committed before the transport is ever
@@ -355,7 +355,7 @@ class LooperMode:
         self._paused_at         = None
 
         # Ownership must be explicitly claimed via enter()/set_display_owner
-        # -- never assumed at construction, since code.py only ever hands
+        # -- never assumed at construction, since groovebox.py only ever hands
         # it off explicitly and a mode that's never had focus should never
         # be able to paint over the shared display on a background event
         # (e.g. a TICK dispatched to it while another mode has focus).
@@ -410,7 +410,7 @@ class LooperMode:
         tick_at, step = self._countdown_tick
         return tick_at + (STEPS_PER_BAR - step) * self._seq.step_dur
 
-    # ── For the lights (pad_views.KeyboardView, code.py's key lights) ─────────
+    # ── For the lights (pad_views.KeyboardView, groovebox.py's key lights) ────
 
     @property
     def held_mask(self):
@@ -464,7 +464,7 @@ class LooperMode:
     def refresh_display(self):
         self._refresh_display()
 
-    # ── Channels (called by code.py for the channel view and CLEAR) ───────────
+    # ── Channels (called by groovebox.py for the channel view and CLEAR) ──────
 
     def can_select(self, n):
         """False while recording on another layer: you can't change layer
@@ -855,7 +855,7 @@ class LooperMode:
             self._countdown_snap_pads = set()
             self._countdown_down_pads = set()
             # Only a first layer's arm carries the session's sync intent
-            # (code.py picks snap/freeform when it's armed) -- cancelling
+            # (groovebox.py picks snap/freeform when it's armed) -- cancelling
             # that resets it. Cancelling a later layer's countdown must
             # leave an existing session's sync alone, or a synced loop
             # would lose its PLAY/STOP link and BPM lock.
@@ -1024,7 +1024,7 @@ class LooperMode:
         # would very slightly mismatch the sequencer's own step_dur-based
         # clock, causing the two to drift apart over long sessions even
         # though each is individually steady. Tempo can't have changed
-        # mid-recording: code.py blocks the menu's BPM edit for the whole
+        # mid-recording: groovebox.py blocks the menu's BPM edit for the whole
         # "snap" session.
         bar_count = self._snap_bar_count
         self._snap_active         = False
@@ -1083,7 +1083,7 @@ class LooperMode:
             self._was_cleared = True
 
     def clear_all(self):
-        """Called externally by code.py: CLEAR's "every layer" scope."""
+        """Called externally by groovebox.py: CLEAR's "every layer" scope."""
         for idx in range(NUM_LOOP_LAYERS):
             self._release_playback(idx)   # see _clear_layer
         for layer in self._layers:
@@ -1100,15 +1100,15 @@ class LooperMode:
         self._refresh_display()
 
     def set_playing(self, playing, now):
-        """Called externally by code.py on a PLAY/STOP press (and kept
+        """Called externally by groovebox.py on a PLAY/STOP press (and kept
         in sync with the sequencer's own transport, except in a freeform
-        session -- see code.py). Pausing doesn't stop code.py from calling
-        handle_event for non-clock events (previewing a pad still works),
-        but code.py stops calling update() while paused, so nothing
-        advances or triggers. On resume, every already-committed layer
+        session -- see groovebox.py). Pausing doesn't stop groovebox.py
+        from calling handle_event for non-clock events (previewing a pad
+        still works), but groovebox.py stops calling update() while paused,
+        so nothing advances or triggers. On resume, every already-committed layer
         restarts at position 0 rather than resuming its exact pre-pause
         phase -- simpler, and it means every layer (and the sequencer, in a
-        synced session -- code.py resets its own step clock to 0 the same
+        synced session -- groovebox.py resets its own step clock to 0 the same
         way on resume) comes back trivially lockstepped from one shared
         instant instead of each independently reconstructing fractional
         phase across the pause."""
@@ -1139,7 +1139,7 @@ class LooperMode:
                 self._release_playback(idx)
         self._refresh_display()
 
-    # ── Grooves (called by code.py for the menu's SAVE / LOAD) ────────────────
+    # ── Grooves (called by groovebox.py for the menu's SAVE / LOAD) ───────────
 
     def snapshot(self):
         """Every committed layer as plain data. A layer mid-overdub is saved
@@ -1161,9 +1161,9 @@ class LooperMode:
 
     def restore(self, data, v1_notes=False):
         """Replace everything with a snapshot(). Expects the transport
-        already stopped (code.py does that first), so the next PLAY starts
+        already stopped (groovebox.py does that first), so the next PLAY starts
         every layer from the top via set_playing(). Unlike clear_all() this
-        never flags was_cleared -- code.py sets the loaded groove's sync
+        never flags was_cleared -- groovebox.py sets the loaded groove's sync
         mode itself, and that flag would reset it to "none" at frame end.
         v1_notes: the snapshot is from a v1 groove (see groove.py), so the
         notes on melodic layers move to today's layout -- which needs the

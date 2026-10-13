@@ -6,9 +6,8 @@ import unittest
 import fakes  # noqa: F401  (installs the CircuitPython fakes first)
 
 import config
-import keymap
-import palette
-from display import DisplayManager
+from core import keymap, palette
+from core.display import DisplayManager
 
 
 class DisplayTextTest(unittest.TestCase):

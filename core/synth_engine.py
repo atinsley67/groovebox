@@ -3,13 +3,13 @@ import audiobusio
 import math
 import synthio
 
-import clock
+from core import clock
 import config
-import scales
-from sound_presets import (build_kit_instance, instantiate_instrument,
-                           upgrade_v2_kit_params, voice_notes,
-                           INSTRUMENT_NAMES, WAVEFORM_DIVISORS, WAVEFORM_TABLES)
-from synth_params import GLIDE_OFF
+from core import scales
+from core.sound_presets import (build_kit_instance, instantiate_instrument,
+                                upgrade_v2_kit_params, voice_notes,
+                                INSTRUMENT_NAMES, WAVEFORM_DIVISORS, WAVEFORM_TABLES)
+from core.synth_params import GLIDE_OFF
 
 _VIBRATO_MAX_BEND = 1.0 / 12  # bend depth (1 semitone) at full LFO depth
 _FULL_VOLUME      = 100       # channel volumes are whole percents, 0-100
@@ -347,6 +347,15 @@ class SynthEngine:
                                                       self._layer_gain(layer_idx))
         return old
 
+    def transpose_channel(self, layer_idx, octaves):
+        """Move a melodic layer's voice `octaves` octaves (up +, down -)
+        from where it is, from its next note. A kit layer ignores it. (The
+        game, game.py, moves its lead voices down out of their squeaky top
+        register; the groovebox doesn't use it.)"""
+        channel = self._channels[layer_idx]
+        if channel["type"] == "melodic":
+            channel["data"]["mult"] *= 2 ** octaves
+
     def restore_channel(self, layer_idx, channel):
         """Put a channel previously returned by assign_channel() back as-is
         (re-levelled to the slot's current volume)."""
@@ -354,7 +363,7 @@ class SynthEngine:
         self._channels[layer_idx] = channel
         self._apply_channel_level(layer_idx)
 
-    # ── Channel volume (code.py's UP/DOWN outside the menu) ───────────────────
+    # ── Channel volume (groovebox.py's UP/DOWN outside the menu) ──────────────
 
     def channel_volume(self, layer_idx):
         """A loop layer's volume, 0-100 (%)."""
@@ -405,7 +414,7 @@ class SynthEngine:
         sound["params"] = dict(sound["defaults"])
         self._apply_drum_params(sound, self._track_gain(pad_idx))
 
-    # ── Grooves (called by code.py for the menu's SAVE / LOAD) ────────────────
+    # ── Grooves (called by groovebox.py for the menu's SAVE / LOAD) ───────────
 
     def snapshot_sounds(self):
         """Every sound edit as plain data: the sequencer kit's sounds, each

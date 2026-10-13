@@ -10,8 +10,8 @@ import unittest
 
 import fakes
 
-import groove
-import synth_params
+from gbox import groove
+from core import synth_params
 
 
 class SchemaTest(unittest.TestCase):
@@ -74,7 +74,7 @@ class GrooveSlotTest(unittest.TestCase):
 
 class CompileTest(unittest.TestCase):
     def test_every_module_compiles(self):
-        files = glob.glob(os.path.join(fakes.ROOT, "*.py"))
+        files = fakes.sources()
         self.assertTrue(files)
         out = tempfile.mkdtemp()
         try:

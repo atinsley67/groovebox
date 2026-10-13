@@ -26,10 +26,9 @@ import audiobusio
 import synthio
 
 import config
-import keymap
-import palette
-from hw import Hardware
-from display import DisplayManager
+from core import keymap, palette
+from core.hw import Hardware
+from core.display import DisplayManager
 
 _TONE_PAD = 0          # PAD1 doubles as the DAC/synthio smoke test
 _TONE_FREQUENCY = 440  # A4
